@@ -230,20 +230,8 @@ ROOTS = [
 ]
 
 
-def naive_root(leaves: list[bytes]) -> bytes:
-    """Independent reference implementation, structured differently on purpose."""
-    if not leaves:
-        return hashlib.sha256(b"").digest()
-    level = [hashlib.sha256(b"\x00" + l).digest() for l in leaves]
-    while len(level) > 1:
-        # RFC 6962 splits at the largest power of two < n, which for level-wise
-        # combination equals pairing left-to-right only when we recurse; emulate
-        # by recursion instead:
-        return _naive(leaves)
-    return level[0]
-
-
 def _naive(leaves: list[bytes]) -> bytes:
+    """Independent reference implementation, structured differently on purpose."""
     n = len(leaves)
     if n == 1:
         return hashlib.sha256(b"\x00" + leaves[0]).digest()
@@ -463,7 +451,7 @@ def verify_consistency(old_size: int, new_size: int, old_root: bytes, new_root: 
     if old_size == new_size:
         return not proof and old_root == new_root
     if old_size == 0:
-        return not proof and new_root == new_root  # empty prefix is consistent with anything
+        return not proof  # the empty prefix is consistent with any tree
     path = list(proof)
     if old_size & (old_size - 1) == 0:  # old tree is a complete subtree; its root is implied
         path = [old_root] + path
