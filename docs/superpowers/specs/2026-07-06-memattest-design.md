@@ -12,9 +12,37 @@ AI agents accumulate persistent memories (files, notes, learned context) that sh
 
 ### What memattest does NOT claim
 
-memattest proves **integrity and provenance** — that a memory is unaltered since it was recorded, was recorded by a specific installation, and sits at a specific position in the sequence. It does **not** prove the memory's content is *true* or *safe*: a prompt-injected agent writing a poisoned memory through the legitimate path produces a perfectly valid, fully attested entry. Content screening is the province of complementary tools (e.g., OWASP Agent Memory Guard); memattest is the integrity/sequence layer beneath them.
+memattest proves **integrity and provenance** — that a memory is unaltered since it was recorded, was recorded by a specific installation, and sits at a specific position in the sequence. It does **not** prove the memory's content is *true* or *safe*: a prompt-injected agent writing a poisoned memory through the legitimate path produces a perfectly valid, fully attested entry. Content screening is the province of complementary tools (e.g., OWASP Agent Memory Guard); memattest is intended to be the integrity/sequence layer beneath them.
 
 ## 2. Threat model
+
+Data flow and adversary positions ([A1], [A2] are the two in-scope adversaries):
+
+```
+                     ┌─────────────────────────────┐
+                     │    Agent harness session    │
+                     │     (e.g., Claude Code)     │
+                     └───────┬─────────────┬───────┘
+                             │             │
+                  1. agent writes      2. hooks invoke CLI
+                     memory file          SessionStart → verify
+                             │            PostToolUse  → append
+                             ▼             ▼
+                     ┌───────────────┐   ┌──────────────────────┐
+  [A1] out-of-band   │  Memory dir   │◀─▶│    memattest CLI     │
+  file tampering ┄┄▶ │  (guarded     │   │ append / verify /    │
+  detected by state  │   files)      │   │ adopt (human-only)   │
+  conformance check  └───────────────┘   └──────┬────────┬──────┘
+                                                │        │
+                             append entries and │        │ unseal signing key;
+                             signed tree heads  │        │ verify with pubkey
+                                                ▼        ▼
+  [A2] history rewrite     ┌──────────────────────┐   ┌─────────────────┐
+  (alter / reorder /  ┄┄▶  │ .memattest/          │   │ OS keystore     │
+  truncate the log)        │ entries/ sth/ pubkey │   │ (sealed Ed25519 │
+  detected by consistency  └──────────────────────┘   │  signing key)   │
+  proofs between STHs                                 └─────────────────┘
+```
 
 ### In scope (v1)
 
@@ -25,10 +53,10 @@ memattest proves **integrity and provenance** — that a memory is unaltered sin
 
 ### Out of scope (v1, documented limitations)
 
-- **Same-user malware.** Code running as the same OS user can unseal the signing key (keystore backends protect against *other* users and offline theft, not the owner's own session). Mitigation path is the v2 resident validator service under a separate account. Even in v1, same-user tampering that goes through `adopt` leaves a permanent signed record (see §8).
+- **Same-user malware.** Code running as the same OS user can unseal the signing key (keystore backends protect against *other* users and offline theft, not the owner's own session). This will be mitigated in v2 by a resident validator service under a separate account. Even in v1, same-user tampering that goes through `adopt` leaves a permanent signed record (see §8).
 - **Admin/SYSTEM-level attackers.** Requires TPM sealing or external root anchoring; deferred.
 - **Remote/synced memory stores.** Key distribution and multi-device identity deferred.
-- **Front-door content poisoning.** By design out of scope (see §1).
+- **Content poisoning through legitimate writes ("front-door" poisoning).** A compromised or prompt-injected agent recording a malicious memory through the normal write path, which produces a validly attested entry. By design out of scope (see §1).
 
 ## 3. Goals and non-goals
 
@@ -38,14 +66,13 @@ memattest proves **integrity and provenance** — that a memory is unaltered sin
 2. Detect any rewrite, reorder, or truncation of memory history via consistency proofs.
 3. Record extensible provenance (process, machine, session, custom plugins) with every write.
 4. Cross-platform: Windows and Linux from v1 (macOS expected to work via the same abstractions).
-5. Harness-agnostic core library; Claude Code hooks as the first adapter.
+5. Harness-agnostic core library; adapter implementation provided to support Claude Code. Adapters can be easily created to support Codex, Gemini CLI and others.
 6. Survive agent/harness upgrades without rehashing history (per-entry scheme versioning).
 
 **Non-goals (v1)**
 
 - Content analysis (injection/PII detection) — compose with OWASP Agent Memory Guard instead.
 - Enforcement (blocking writes) — v1 detects and reports; enforcement arrives with the v2 mediated paths.
-- Performance optimizations (batching, caching, sparse trees) — at Claude Code memory scale (thousands of entries), RFC 6962 append/verify costs are negligible. YAGNI.
 
 ## 4. Prior art and differentiators
 
@@ -56,11 +83,11 @@ memattest proves **integrity and provenance** — that a memory is unaltered sin
 | Portable Agent Memory (arXiv 2605.11032) | Provenance-verified memory *transfer* between agents | Research protocol, not a guarding tool for a live store |
 | ECDH-keyed Merkle chains (arXiv 2506.13246); Right to History (arXiv 2602.20214) | Academic frameworks for immutable agent memory / verifiable execution | No production implementation or harness integration |
 
-**Differentiators:** (a) sequential integrity via a real transparency-log construction, not flat hashes; (b) an extensible provenance-provider plugin interface; (c) signed roots with an explicit trust anchor; (d) a no-rehash upgrade policy that preserves historical tamper-evidence; (e) practical, dogfooded harness integration.
+**Differentiators:** (a) sequential integrity via a real transparency-log construction, not flat hashes; (b) an extensible provenance-provider plugin interface; (c) signed roots with an explicit trust anchor; (d) a no-rehash upgrade policy that preserves historical tamper-evidence; (e) practical implementation tested with Claude Code harness.
 
 ## 5. Architecture
 
-**v1 shape: hook-driven CLI.** No resident process. A Python package `memattest` exposes a library API and a CLI. Agent-harness hooks invoke the CLI at well-defined moments (session start → verify; post-write → append). All state lives in a sidecar directory next to the guarded memory directory. The signing key is sealed in an OS keystore.
+**v1 shape: hook-driven CLI.** No resident process. A Python package `memattest` exposes a library API and a CLI. Agent-harness hooks invoke the CLI at well-defined moments (session start → verify; post-write → append). All state lives in a directory next to the guarded memory directory. The signing key is sealed in an OS keystore.
 
 Rejected alternatives, revisitable later: a resident validator service under a separate account (v2 — real privilege separation, near-real-time detection) and a fully mediated store where writes flow through a memattest-owned MCP tool (enforcement rather than detection, but harness-invasive).
 
@@ -86,13 +113,13 @@ memattest/
 └── integrations/claude_code/   # hook scripts + settings snippets
 ```
 
-The canonical example of a **third-party provenance provider** is a git workspace provider (repo, branch, HEAD commit at write time) — platform-agnostic and ties each memory to the code state the agent was working against. Built-in providers use `psutil`/stdlib only.
+The canonical example of a **third-party provenance provider** is a git workspace provider (repo, branch, HEAD commit at write time). It would tie each memory to the code state that the agent was working with. Built-in providers use `psutil`/stdlib only.
 
 ## 6. Data model
 
-**Events, not files.** Memory files are mutable (MEMORY.md changes constantly), so the log records immutable *write events*; current expected state is derived as the latest event per path.
+Memory files are mutable (MEMORY.md changes constantly), so the log records immutable *write events*; current expected state is derived as the latest event per path.
 
-Each leaf is a canonical-JSON (sorted keys, UTF-8, no insignificant whitespace) record:
+Each leaf is a canonical-JSON (UTF-8, no insignificant whitespace) record:
 
 ```json
 {
@@ -112,7 +139,7 @@ Each leaf is a canonical-JSON (sorted keys, UTF-8, no insignificant whitespace) 
 }
 ```
 
-**Storage layout** (sidecar, itself excluded from guarding):
+**Storage layout** (itself excluded from guarding):
 
 ```
 <memory-dir>/.memattest/
@@ -128,7 +155,7 @@ Entries are plain JSON on disk deliberately: the log is inspectable and reconstr
 
 ## 7. Operations
 
-**Append** (post-write hook): hash the written file → gather claims from all registered providers → build canonical entry → append leaf (O(log n)) → compute new root → sign STH with consistency proof against the previous STH → append STH to chain. Sub-second; no batching.
+**Append** (post-write hook): hash the written file → gather claims from all registered providers → build canonical entry → append leaf → compute new root → sign STH with consistency proof against the previous STH → append STH to chain.
 
 **Verify** (session-start hook, or on demand). Three independent checks, all must pass:
 1. **Tree integrity:** recompute the Merkle tree from entries; root must match the latest STH, whose signature must verify against the public key.
@@ -139,7 +166,7 @@ Verification of tree structure and file state requires only the **public** key; 
 
 **Inspect** (`memattest log`, `memattest prove`): `log` prints entries human-readably (optionally filtered by path); `prove` emits an RFC 6962 inclusion proof for a given entry or a consistency proof between two tree sizes, as JSON, so third parties holding only the public key and an STH can independently verify a memory's presence and position.
 
-**Adopt** — the sole, deliberate path for blessing untracked state. Appends a signed `adopt` event recording the current content hash of named files with full provenance and a required `--reason`. Three uses: initial baseline (`memattest init` runs an adopt over pre-existing memories), legitimate out-of-band edits (human hand-edits a memory file between sessions), and post-tamper acceptance. **Adopt appends; it never rewrites.** The divergence it forgives remains permanently visible in history: an auditor sees writes through entry N, then an adopt at N+1 whose hash contradicts entry N's prediction, with timestamp, provenance, and reason. Tampering can be forgiven, never hidden.
+**Adopt** — the only way to allow out-of-band edits. Appends a signed `adopt` event recording the current content hash of named files with full provenance and a required `--reason`. Three uses: (1) initial baseline (`memattest init` runs an adopt over pre-existing memories); (2) legitimate out-of-band edits (human hand-edits a memory file between sessions); (3) post-tamper acceptance. **Adopt appends; it never rewrites.** The divergence it forgives remains permanently visible in history: an auditor sees writes through entry N, then an adopt at N+1 whose hash contradicts entry N's prediction, with timestamp, provenance, and reason.
 
 ## 8. Adopt protections
 
@@ -153,7 +180,7 @@ Adopt is the most dangerous command (the one way to make untracked changes trust
 
 ## 9. Versioning and upgrade policy
 
-Every entry carries a `scheme` field. Verifiers dispatch per entry and must support all historical schemes (backward-compatibility layer). **Old entries are never rehashed or migrated:** rehashing would launder any pre-migration tampering into validly signed history and make the migration tool itself a prime attack target. When a scheme or key rotates, the new configuration **countersigns** the old log: it verifies the existing chain, then records a `checkpoint` STH — an ordinary STH plus a `type: "checkpoint"` marker and the countersigning key's ID — signed by the new key over the old root. History accumulates signatures; it is never rewritten. Entries with a scheme newer than the verifier are reported as unverifiable.
+Every entry carries a `scheme` field. Verifiers dispatch per entry and must support all historical schemes (backward-compatibility layer). **Old entries are never rehashed or migrated:** rehashing would launder any pre-migration tampering into validly signed history and make the migration tool itself a prime attack target. When a scheme or key rotates, the new configuration **countersigns** the old log: it verifies the existing chain, then records a `checkpoint` STH — an ordinary STH plus a `type: "checkpoint"` marker and the countersigning key's ID — signed by the new key over the old root. In this way, history accumulates signatures and is never rewritten. Entries with a scheme newer than the verifier are reported as unverifiable.
 
 ## 10. Claude Code integration
 
@@ -163,11 +190,13 @@ Configured in `.claude/settings.json`:
 - **PostToolUse hook** (Write|Edit matching the memory directory) → `memattest append`, reading the hook JSON payload from stdin.
 - **Permission deny rule** for `memattest adopt` (§8).
 
-Failure of a hook to fire (crash between file write and append) is self-healing: the next verify reports the file as diverged and a human reconciles via adopt. This is the accepted cost of post-hoc detection in the hook-driven architecture.
+Failure of a hook to fire (crash between file write and append) is handled as follows: The next verify reports the file as diverged. A human then needs to review and can reconcile via adopt. This approach intentionally requires a human in the loop for verification.
 
 The integration layer is deliberately thin; LangChain/mem0-style middleware adapters can follow the Memory Guard integration pattern in later versions without touching the core.
 
 ## 11. Error handling
+
+Exit codes per §7: 0 clean · 1 tamper detected · 2 operational error · 3 unknown scheme version.
 
 | Condition | Behavior |
 |---|---|
