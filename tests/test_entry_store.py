@@ -45,3 +45,12 @@ def test_store_rejects_index_gap(tmp_path):
     store = LogStore(tmp_path / ".memattest")
     with pytest.raises(ValueError):
         store.append(build_entry(5, "write", "a.md", "sha256:00", {}))
+
+
+def test_store_never_overwrites_existing_entry_file(tmp_path):
+    store = LogStore(tmp_path / ".memattest")
+    store.append(build_entry(0, "write", "a.md", "sha256:00", {}))
+    # Simulate a non-contiguous entries dir: index 1 exists on disk but count() sees 2 files.
+    (tmp_path / ".memattest" / "entries" / "000002.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="append-only"):
+        store.append(build_entry(2, "write", "b.md", "sha256:01", {}))

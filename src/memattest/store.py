@@ -19,6 +19,8 @@ class LogStore:
         if entry["index"] != expected:
             raise ValueError(f"entry index {entry['index']} != next index {expected}")
         target = self.entries_dir / f"{entry['index']:06d}.json"
+        if target.exists():
+            raise ValueError(f"entry file {target.name} already exists; log is append-only")
         target.write_bytes(canonical_json(entry))
 
     def load_all(self) -> list[dict]:
