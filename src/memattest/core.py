@@ -105,11 +105,19 @@ class MemAttest:
         return state
 
     def verify(self) -> VerifyReport:
-        if not self.initialized:
-            raise MemAttestError("not initialized; run init first")
         problems: list[dict] = []
         entries = self.store.load_all()
-        pub = bytes.fromhex(self.pubkey_path.read_text(encoding="ascii").strip())
+
+        # Try to load pubkey first; missing/unreadable/corrupted pubkey is an operational error
+        try:
+            pub = bytes.fromhex(self.pubkey_path.read_text(encoding="ascii").strip())
+        except (OSError, ValueError) as exc:
+            raise MemAttestError(f"cannot load public key from {self.pubkey_path}: {exc}") from exc
+
+        # If we have entries/STHs but no initialization-level setup, that's an error
+        sths = self.sth_chain.load_all()
+        if not entries and not sths:
+            raise MemAttestError("not initialized; run init first")
 
         # Scheme dispatch (spec §9): refuse to guess at unknown schemes.
         unknown = [e for e in entries if e.get("scheme") != SCHEME]
@@ -120,7 +128,6 @@ class MemAttest:
             return VerifyReport(ok=False, exit_code=3, problems=problems)
 
         leaves = self.store.leaf_bytes()
-        sths = self.sth_chain.load_all()
 
         # Check 1+2: every STH must be signed by our key AND match the recomputed
         # root of its prefix. Because we hold all leaves, recomputing every prefix

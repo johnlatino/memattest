@@ -6,7 +6,7 @@ import pytest
 from memattest.canonical import canonical_json
 from memattest.core import MemAttest
 from memattest.identity import Identity, KeyStore
-from memattest.errors import KeyStoreError
+from memattest.errors import KeyStoreError, MemAttestError
 from memattest.seal import build_sth
 from memattest import merkle
 
@@ -128,3 +128,15 @@ def test_unknown_scheme_reported_not_guessed(mem):
     r = mem.verify()
     assert not r.ok and r.exit_code == 3
     assert "unknown-scheme" in kinds(r)
+
+
+def test_missing_pubkey_is_operational_error_not_tamper(mem):
+    mem.pubkey_path.unlink()
+    with pytest.raises(MemAttestError, match="cannot load public key"):
+        mem.verify()
+
+
+def test_corrupted_pubkey_is_operational_error_not_tamper(mem):
+    mem.pubkey_path.write_text("zz-not-hex", encoding="ascii")
+    with pytest.raises(MemAttestError, match="cannot load public key"):
+        mem.verify()
