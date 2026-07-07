@@ -1,4 +1,5 @@
 import base64
+import binascii
 import json
 import os
 from abc import ABC, abstractmethod
@@ -60,14 +61,21 @@ class FileKeyStore(KeyStore):
     def _load(self) -> dict:
         if not self.path.exists():
             return {}
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeyStoreError(f"unreadable or corrupted key file {self.path}: {exc}") from exc
 
     def seal(self, name: str, secret: bytes) -> None:
         blobs = self._load()
         salt, nonce = os.urandom(16), os.urandom(12)
         ct = AESGCM(self._derive(salt)).encrypt(nonce, secret, None)
         blobs[name] = base64.b64encode(salt + nonce + ct).decode("ascii")
-        self.path.write_text(json.dumps(blobs), encoding="utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.path.write_text(json.dumps(blobs), encoding="utf-8")
+        except OSError as exc:
+            raise KeyStoreError(f"cannot write key file {self.path}: {exc}") from exc
         if os.name == "posix":
             os.chmod(self.path, 0o600)
 
@@ -75,7 +83,12 @@ class FileKeyStore(KeyStore):
         blobs = self._load()
         if name not in blobs:
             raise KeyStoreError(f"no key named {name!r} in {self.path}")
-        raw = base64.b64decode(blobs[name])
+        try:
+            raw = base64.b64decode(blobs[name])
+        except binascii.Error as exc:
+            raise KeyStoreError(f"corrupted key blob for {name!r} in {self.path}") from exc
+        if len(raw) < 29:  # 16 salt + 12 nonce + at least 1 ciphertext byte
+            raise KeyStoreError(f"corrupted key blob for {name!r} in {self.path}")
         salt, nonce, ct = raw[:16], raw[16:28], raw[28:]
         try:
             return AESGCM(self._derive(salt)).decrypt(nonce, ct, None)

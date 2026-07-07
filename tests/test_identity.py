@@ -50,6 +50,23 @@ def test_file_keystore_wrong_passphrase(tmp_path):
         FileKeyStore(tmp_path / "key.sealed", passphrase=b"wrong").unseal("k1")
 
 
+def test_file_keystore_corrupted_file_raises_keystoreerror(tmp_path):
+    path = tmp_path / "key.sealed"
+    path.write_text("{ not valid json", encoding="utf-8")
+    ks = FileKeyStore(path, passphrase=b"pw")
+    with pytest.raises(KeyStoreError):
+        ks.unseal("k1")
+
+
+def test_file_keystore_truncated_blob_raises_keystoreerror(tmp_path):
+    import base64, json
+    path = tmp_path / "key.sealed"
+    path.write_text(json.dumps({"k1": base64.b64encode(b"short").decode("ascii")}), encoding="utf-8")
+    ks = FileKeyStore(path, passphrase=b"pw")
+    with pytest.raises(KeyStoreError):
+        ks.unseal("k1")
+
+
 def test_keyring_keystore_smoke():
     ks = KeyringKeyStore(service="memattest-test")
     try:
