@@ -71,7 +71,7 @@ memattest verify --memory-dir <MEMORY_DIR>
 
 A clean log prints a single `OK <n> entries verified` line and exits 0. A
 compromised log prints one `PROBLEM` line per finding — kind, path, detail,
-and the last entry index known to be good — and exits 1.
+and the last entry index known to be good — and exits 1 (or 3 if entries use an unknown scheme version — see Exit codes below).
 
 If you edit a guarded memory file by hand between sessions (a legitimate
 out-of-band change, not tampering), verification will correctly report it as
@@ -79,7 +79,7 @@ a divergence. Reconcile it with `adopt`, which appends a new signed entry
 recording the file's current hash together with a required justification:
 
 ```bash
-memattest adopt <MEMORY_DIR>/notes.md --reason "manual correction of stale project name"
+memattest adopt <MEMORY_DIR>/notes.md --reason "manual correction of stale project name" --memory-dir <MEMORY_DIR>
 ```
 
 `adopt` only runs from an interactive terminal and asks for typed
