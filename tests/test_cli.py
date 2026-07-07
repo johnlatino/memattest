@@ -37,6 +37,30 @@ def test_record_and_tamper_flow(memdir, capsys):
     assert run("verify", *base(memdir)) == 1
     out = capsys.readouterr().out
     assert "kind=modified" in out and "path=notes.md" in out
+    assert "Remediation:" in out
+
+
+def test_record_nonexistent_path_is_operational_error(memdir, capsys):
+    run("init", *base(memdir))
+    rc = run("record", *base(memdir), "--path", str(memdir / "no-such-file.md"))
+    assert rc == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_prove_negative_index_is_operational_error(memdir, capsys):
+    run("init", *base(memdir))
+    capsys.readouterr()
+    rc = run("prove", *base(memdir), "--index", "-1")
+    assert rc == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_prove_out_of_range_index_is_operational_error(memdir, capsys):
+    run("init", *base(memdir))
+    capsys.readouterr()
+    rc = run("prove", *base(memdir), "--index", "5")
+    assert rc == 2
+    assert "error:" in capsys.readouterr().err
 
 
 def test_verify_uninitialized_is_operational_error(memdir, capsys):

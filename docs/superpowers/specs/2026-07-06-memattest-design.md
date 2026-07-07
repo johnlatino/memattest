@@ -57,6 +57,8 @@ Data flow and adversary positions ([A1], [A2] are the two in-scope adversaries):
 - **Admin/SYSTEM-level attackers.** Requires TPM sealing or external root anchoring; deferred.
 - **Remote/synced memory stores.** Key distribution and multi-device identity deferred.
 - **Content poisoning through legitimate writes ("front-door" poisoning).** A compromised or prompt-injected agent recording a malicious memory through the normal write path, which produces a validly attested entry. By design out of scope (see §1).
+- **Trust anchor.** v1 verification trusts the public key file stored in `.memattest/`; an attacker with write access to the memory directory can replace it, rewrite history, and re-sign with their own key undetected. Mitigations: keystore-sealed pubkey cross-check (fast-follow), external root anchoring (v2).
+- **Rollback.** Deleting a suffix of entries together with their covering tree heads and created files reverts the log to an earlier, fully valid sealed state undetected. Requires an external anchor for the latest tree head (v2).
 
 ## 3. Goals and non-goals
 

@@ -13,7 +13,9 @@ detected and reported by name — *which file*, what hash was expected, what
 hash was found, and at which log entry the file was last known-good. Any
 attempt to reorder, truncate, or rewrite history is likewise caught by the
 consistency-proof check, because the log format makes silently editing the
-past mathematically distinguishable from validly extending it.
+past mathematically distinguishable from validly extending it — except when
+the covering tree heads are removed along with the truncated entries; see the
+rollback limitation below.
 
 ## What memattest does NOT do
 
@@ -188,6 +190,17 @@ A few related boundaries are worth stating plainly:
   the parent-process chain and whether the call came from an interactive TTY
   — so the event remains visible to anyone who later inspects the log with
   `memattest log`, even though it was not blocked.
+- **Trust anchor.** v1 verification trusts the public key file stored inside
+  `.memattest/`. An attacker with write access to the memory directory can
+  replace `pubkey.ed25519`, rewrite history, and re-sign it with their own
+  key, and v1 verify will report clean. Planned mitigations: cross-checking
+  the public key against a keystore-sealed copy (fast-follow), and external
+  root anchoring (v2).
+- **Rollback.** Because every append seals a valid tree head, an attacker who
+  deletes a suffix of entries together with their covering tree heads and the
+  created files reverts the log to an earlier, fully valid sealed state
+  undetected. Detecting rollback requires an external anchor for the latest
+  tree head (v2).
 
 ## Exit codes
 

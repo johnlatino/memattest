@@ -88,3 +88,15 @@ def test_record_before_init_raises_memattest_error(mem):
     f.write_text("x", encoding="utf-8")
     with pytest.raises(MemAttestError, match="not initialized"):
         mem.record(f)
+
+
+def test_record_inside_state_dir_raises_memattest_error(mem):
+    mem.init()
+    target = mem.store.entries_dir / "000000.json"
+    with pytest.raises(MemAttestError, match="state directory"):
+        mem.record(target)
+
+
+def test_verify_before_init_raises_not_initialized(mem):
+    with pytest.raises(MemAttestError, match="not initialized"):
+        mem.verify()

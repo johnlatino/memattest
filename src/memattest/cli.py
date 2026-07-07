@@ -26,8 +26,18 @@ def _print_report(report: VerifyReport, entry_count: int) -> None:
     if report.ok:
         print(f"OK {entry_count} entries verified")
         return
-    for p in report.problems:
-        print(f"PROBLEM kind={p['kind']} path={p['path']} detail={p['detail']} last_valid={p['last_valid_index']}")
+    lines = [
+        f"PROBLEM kind={p['kind']} path={p['path']} detail={p['detail']} last_valid={p['last_valid_index']}"
+        for p in report.problems
+    ]
+    lines.append(
+        "Remediation: restore the affected files and re-run verify, or run "
+        "'memattest adopt <paths> --reason ...' to accept the current state."
+    )
+    for line in lines:
+        print(line)
+    for line in lines:
+        print(line, file=sys.stderr)
 
 
 def cmd_init(args) -> int:
@@ -75,8 +85,12 @@ def cmd_prove(args) -> int:
     ma = _make_ma(args)
     leaves = ma.store.leaf_bytes()
     if args.index is not None:
+        if not (0 <= args.index < len(leaves)):
+            raise MemAttestError(f"--index must be in [0, {len(leaves) - 1}]")
         proof = merkle.inclusion_proof(args.index, leaves)
     elif args.old_size is not None:
+        if not (0 <= args.old_size <= len(leaves)):
+            raise MemAttestError(f"--old-size must be in [0, {len(leaves)}]")
         proof = merkle.consistency_proof(args.old_size, leaves)
     else:
         raise MemAttestError("prove requires --index or --old-size")
@@ -157,4 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.fn(args)
     except MemAttestError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"error: unexpected failure: {exc!r}", file=sys.stderr)
         return 2

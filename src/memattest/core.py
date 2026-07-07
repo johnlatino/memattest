@@ -46,9 +46,12 @@ class MemAttest:
 
     def _rel(self, path: Path) -> str:
         try:
-            return Path(path).resolve().relative_to(self.memory_dir.resolve()).as_posix()
+            rel = Path(path).resolve().relative_to(self.memory_dir.resolve())
         except ValueError as exc:
             raise MemAttestError(f"{path} is not under the guarded memory directory {self.memory_dir}") from exc
+        if STATE_DIR_NAME in rel.parts:
+            raise MemAttestError(f"{path} is inside the memattest state directory and cannot be recorded")
+        return rel.as_posix()
 
     def _identity(self) -> Identity:
         return Identity.load(self.keystore, self.key_name)
@@ -107,6 +110,10 @@ class MemAttest:
     def verify(self) -> VerifyReport:
         problems: list[dict] = []
         entries = self.store.load_all()
+        sths = self.sth_chain.load_all()
+
+        if not entries and not sths and not self.initialized:
+            raise MemAttestError("not initialized; run init first")
 
         # Try to load pubkey first; missing/unreadable/corrupted pubkey is an operational error
         try:
@@ -115,11 +122,11 @@ class MemAttest:
             raise MemAttestError(f"cannot load public key from {self.pubkey_path}: {exc}") from exc
 
         # If we have entries/STHs but no initialization-level setup, that's an error
-        sths = self.sth_chain.load_all()
         if not entries and not sths:
             raise MemAttestError("not initialized; run init first")
 
         # Scheme dispatch (spec §9): refuse to guess at unknown schemes.
+        # Intentional: unknown schemes make the log unverifiable as a whole; report only exit-3 problems rather than guessing at tree/state checks.
         unknown = [e for e in entries if e.get("scheme") != SCHEME]
         for e in unknown:
             problems.append(_problem("unknown-scheme", e.get("path"),
@@ -154,17 +161,26 @@ class MemAttest:
 
         # Check 3: state conformance — derived expected state vs actual guarded files.
         expected = self.derived_state()
-        last_index: dict[str, int] = {}
+        last_entry: dict[str, dict] = {}
         for e in entries:
-            last_index[e["path"]] = e["index"]
+            last_entry[e["path"]] = e
         actual = {self._rel(p): p for p in self.guarded_files()}
         for rel, exp_hash in expected.items():
+            e = last_entry[rel]
             if rel not in actual:
-                problems.append(_problem("missing", rel, "file recorded in log but absent on disk",
-                                         last_index.get(rel)))
-            elif file_content_hash(actual[rel]) != exp_hash:
-                problems.append(_problem("modified", rel, "file content differs from last recorded hash",
-                                         last_index.get(rel)))
+                detail = (
+                    f"file recorded in log (expected {exp_hash}) but absent on disk; "
+                    f"last recorded at entry {e['index']} ({e['timestamp']})"
+                )
+                problems.append(_problem("missing", rel, detail, e["index"]))
+            else:
+                actual_hash = file_content_hash(actual[rel])
+                if actual_hash != exp_hash:
+                    detail = (
+                        f"expected {exp_hash}, found {actual_hash}; "
+                        f"last recorded at entry {e['index']} ({e['timestamp']})"
+                    )
+                    problems.append(_problem("modified", rel, detail, e["index"]))
         for rel in actual:
             if rel not in expected:
                 problems.append(_problem("unlogged", rel, "file on disk was never recorded in the log"))

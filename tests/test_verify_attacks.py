@@ -58,6 +58,8 @@ def test_bitflip_guarded_file_detected(mem):
     (p,) = r.problems
     assert p["kind"] == "modified" and p["path"] == "b.md"
     assert p["last_valid_index"] == 2  # b.md was recorded at entry index 2
+    assert "expected sha256:" in p["detail"]
+    assert "found sha256:" in p["detail"]
 
 
 def test_delete_guarded_file_detected(mem):
