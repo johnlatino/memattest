@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 dist/
 build/
+
+# Session artifacts and untracked source material
+.superpowers/
+agentmemoryvalidation.html
+agentmemoryvalidation_files/
