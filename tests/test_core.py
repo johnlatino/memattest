@@ -73,3 +73,18 @@ def test_guarded_files_excludes_state_dir(mem):
     mem.init()
     names = [p.name for p in mem.guarded_files()]
     assert names == ["MEMORY.md"]
+
+
+def test_record_outside_memory_dir_raises_memattest_error(mem, tmp_path):
+    mem.init()
+    outsider = tmp_path / "outside.md"
+    outsider.write_text("x", encoding="utf-8")
+    with pytest.raises(MemAttestError, match="not under the guarded memory directory"):
+        mem.record(outsider)
+
+
+def test_record_before_init_raises_memattest_error(mem):
+    f = mem.memory_dir / "notes.md"
+    f.write_text("x", encoding="utf-8")
+    with pytest.raises(MemAttestError, match="not initialized"):
+        mem.record(f)

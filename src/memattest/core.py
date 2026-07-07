@@ -33,7 +33,10 @@ class MemAttest:
         )
 
     def _rel(self, path: Path) -> str:
-        return Path(path).resolve().relative_to(self.memory_dir.resolve()).as_posix()
+        try:
+            return Path(path).resolve().relative_to(self.memory_dir.resolve()).as_posix()
+        except ValueError as exc:
+            raise MemAttestError(f"{path} is not under the guarded memory directory {self.memory_dir}") from exc
 
     def _identity(self) -> Identity:
         return Identity.load(self.keystore, self.key_name)
