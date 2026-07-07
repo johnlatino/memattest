@@ -1,5 +1,4 @@
 import io
-import json
 
 import pytest
 
@@ -75,6 +74,8 @@ def test_cli_adopt_refuses_without_tty(tmp_path, monkeypatch):
     monkeypatch.setattr("sys.stdin", fake_stdin)
     rc = cli.main(["adopt", str(f), "--reason", "r", "--memory-dir", str(d), "--keystore", "file"])
     assert rc == 2
+    # A refused adopt must leave the log untouched: no entry may have been recorded.
+    assert list((d / ".memattest" / "entries").glob("*.json")) == []
 
 
 def test_cli_adopt_requires_typed_confirmation(tmp_path, monkeypatch):
@@ -90,3 +91,5 @@ def test_cli_adopt_requires_typed_confirmation(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt="": "no")
     rc = cli.main(["adopt", str(f), "--reason", "r", "--memory-dir", str(d), "--keystore", "file"])
     assert rc == 2
+    # A refused adopt must leave the log untouched: no entry may have been recorded.
+    assert list((d / ".memattest" / "entries").glob("*.json")) == []
