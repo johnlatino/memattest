@@ -111,7 +111,7 @@ memattest/
 ├── seal/        # Signed Tree Heads (STH): {tree_size, root_hash, timestamp,
 │                # signature}. STHs form their own append-only chain; each new
 │                # STH must carry a consistency proof against its predecessor.
-├── cli/         # memattest init | append | verify | adopt | log | prove
+├── cli/         # memattest init | record | verify | adopt | log | prove
 └── integrations/claude_code/   # hook scripts + settings snippets
 ```
 
@@ -147,8 +147,7 @@ Each leaf is a canonical-JSON (UTF-8, no insignificant whitespace) record:
 <memory-dir>/.memattest/
 ├── entries/000000.json …    # one canonical-JSON file per leaf
 ├── sth/000000.json …        # append-only chain of signed tree heads
-├── pubkey.ed25519           # public key, stored in the clear
-└── config.toml              # keystore backend, provider config, guard globs
+└── pubkey.ed25519           # public key, stored in the clear
 ```
 
 Entries are plain JSON on disk deliberately: the log is inspectable and reconstructable by a human with no tooling.
@@ -157,7 +156,7 @@ Entries are plain JSON on disk deliberately: the log is inspectable and reconstr
 
 ## 7. Operations
 
-**Append** (post-write hook): hash the written file → gather claims from all registered providers → build canonical entry → append leaf → compute new root → sign STH with consistency proof against the previous STH → append STH to chain.
+**Record** (post-write hook, CLI `memattest record`): hash the written file → gather claims from all registered providers → build canonical entry → append leaf → compute new root → sign STH with consistency proof against the previous STH → append STH to chain.
 
 **Verify** (session-start hook, or on demand). Three independent checks, all must pass:
 1. **Tree integrity:** recompute the Merkle tree from entries; root must match the latest STH, whose signature must verify against the public key.
@@ -166,7 +165,7 @@ Entries are plain JSON on disk deliberately: the log is inspectable and reconstr
 
 Verification of tree structure and file state requires only the **public** key; the sealed private key is needed only to append/seal. Exit codes distinguish: 0 clean · 1 tamper detected · 2 operational error · 3 unknown scheme version.
 
-**Inspect** (`memattest log`, `memattest prove`): `log` prints entries human-readably (optionally filtered by path); `prove` emits an RFC 6962 inclusion proof for a given entry or a consistency proof between two tree sizes, as JSON, so third parties holding only the public key and an STH can independently verify a memory's presence and position.
+**Inspect** (`memattest log`, `memattest prove`): `log` prints entries human-readably; `prove` emits an RFC 6962 inclusion proof for a given entry or a consistency proof between two tree sizes, as JSON, so third parties holding only the public key and an STH can independently verify a memory's presence and position.
 
 **Adopt** — the only way to allow out-of-band edits. Appends a signed `adopt` event recording the current content hash of named files with full provenance and a required `--reason`. Three uses: (1) initial baseline (`memattest init` runs an adopt over pre-existing memories); (2) legitimate out-of-band edits (human hand-edits a memory file between sessions); (3) post-tamper acceptance. **Adopt appends; it never rewrites.** The divergence it forgives remains permanently visible in history: an auditor sees writes through entry N, then an adopt at N+1 whose hash contradicts entry N's prediction, with timestamp, provenance, and reason.
 
@@ -189,7 +188,7 @@ Every entry carries a `scheme` field. Verifiers dispatch per entry and must supp
 Configured in `.claude/settings.json`:
 
 - **SessionStart hook** → `memattest verify <memory-dir>`. Clean pass emits one line at most. Failure emits a structured report into session context so both the user and the agent know the memory is suspect before trusting it; hook config chooses warn-vs-block via exit code.
-- **PostToolUse hook** (Write|Edit matching the memory directory) → `memattest append`, reading the hook JSON payload from stdin.
+- **PostToolUse hook** (Write|Edit matching the memory directory) → `memattest hook post-tool-use`, which records the write, reading the hook JSON payload from stdin.
 - **Permission deny rule** for `memattest adopt` (§8).
 
 Failure of a hook to fire (crash between file write and append) is handled as follows: The next verify reports the file as diverged. A human then needs to review and can reconcile via adopt. This approach intentionally requires a human in the loop for verification.
@@ -223,3 +222,4 @@ Exit codes per §7: 0 clean · 1 tamper detected · 2 operational error · 3 unk
 - Mediated-store mode (MCP tool as the only write path — enforcement, not just detection).
 - Middleware adapters for LangChain / mem0 / AutoGen; possible positioning as a complement or contribution to OWASP Agent Memory Guard.
 - Remote/synced store support (key distribution, multi-device identity).
+- Per-log `config.toml` in `.memattest/` recording the keystore backend chosen at init (plus provider config and guard globs). Today the backend is a per-invocation `--keystore` flag; verifying with a different backend than the log was initialized with produces a confusing key-not-found error instead of a clear "this log uses the file backend" message. Dropped from v1 scope during planning.
