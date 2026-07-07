@@ -1,0 +1,31 @@
+{
+  "//": "memattest Claude Code integration template. Replace <MEMORY_DIR> with your guarded memory directory. SessionStart verifies (exit 1 = tamper report shown to user+agent); PostToolUse appends after memory writes; the deny rule keeps the agent from blessing its own tampering (spec 8).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "memattest verify --memory-dir <MEMORY_DIR>"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "memattest hook post-tool-use --memory-dir <MEMORY_DIR>"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Bash(memattest adopt:*)"
+    ]
+  }
+}
