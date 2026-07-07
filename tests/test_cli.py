@@ -80,3 +80,11 @@ def test_hook_ignores_files_outside_memory_dir(memdir, tmp_path, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(payload))
     assert run("hook", "post-tool-use", *base(memdir)) == 0
     assert run("verify", *base(memdir)) == 0  # nothing recorded, still clean
+
+
+def test_hook_malformed_stdin_is_operational_error(memdir, capsys, monkeypatch):
+    run("init", *base(memdir))
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO("{ not json"))
+    assert run("hook", "post-tool-use", *base(memdir)) == 2
+    assert "malformed hook payload" in capsys.readouterr().err

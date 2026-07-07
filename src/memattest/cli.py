@@ -85,7 +85,12 @@ def cmd_prove(args) -> int:
 
 
 def cmd_hook_post_tool_use(args) -> int:
-    payload = json.load(sys.stdin)
+    try:
+        payload = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        raise MemAttestError(f"malformed hook payload on stdin: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise MemAttestError("malformed hook payload on stdin: expected a JSON object")
     file_path = (payload.get("tool_input") or {}).get("file_path")
     if not file_path:
         return 0
