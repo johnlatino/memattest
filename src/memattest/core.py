@@ -1,13 +1,25 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import merkle, provenance
-from .entry import build_entry, file_content_hash
+from .entry import SCHEME, build_entry, file_content_hash
 from .errors import MemAttestError
 from .identity import Identity, KeyringKeyStore, KeyStore
-from .seal import SthChain, build_sth
+from .seal import SthChain, build_sth, verify_sth
 from .store import LogStore
 
 STATE_DIR_NAME = ".memattest"
+
+
+@dataclass
+class VerifyReport:
+    ok: bool
+    exit_code: int
+    problems: list = field(default_factory=list)
+
+
+def _problem(kind: str, path: str | None, detail: str, last_valid_index: int | None = None) -> dict:
+    return {"kind": kind, "path": path, "detail": detail, "last_valid_index": last_valid_index}
 
 
 class MemAttest:
@@ -91,3 +103,64 @@ class MemAttest:
             elif e["op"] == "delete":
                 state.pop(e["path"], None)
         return state
+
+    def verify(self) -> VerifyReport:
+        if not self.initialized:
+            raise MemAttestError("not initialized; run init first")
+        problems: list[dict] = []
+        entries = self.store.load_all()
+        pub = bytes.fromhex(self.pubkey_path.read_text(encoding="ascii").strip())
+
+        # Scheme dispatch (spec §9): refuse to guess at unknown schemes.
+        unknown = [e for e in entries if e.get("scheme") != SCHEME]
+        for e in unknown:
+            problems.append(_problem("unknown-scheme", e.get("path"),
+                                     f"entry {e.get('index')} has scheme {e.get('scheme')!r}"))
+        if unknown:
+            return VerifyReport(ok=False, exit_code=3, problems=problems)
+
+        leaves = self.store.leaf_bytes()
+        sths = self.sth_chain.load_all()
+
+        # Check 1+2: every STH must be signed by our key AND match the recomputed
+        # root of its prefix. Because we hold all leaves, recomputing every prefix
+        # root is exactly the consistency check between successive STHs.
+        for i, sth in enumerate(sths):
+            if not verify_sth(sth, pub):
+                problems.append(_problem("bad-signature", None, f"STH {i} signature invalid"))
+                continue
+            size = sth["tree_size"]
+            if size > len(leaves):
+                problems.append(_problem("log-truncated", None,
+                                         f"STH {i} covers {size} entries but only {len(leaves)} exist"))
+                continue
+            if merkle.root_hash(leaves[:size]).hex() != sth["root_hash"]:
+                problems.append(_problem("root-mismatch", None,
+                                         f"recomputed root for first {size} entries != STH {i}"))
+        if sths and sths[-1]["tree_size"] != len(leaves) and not any(
+            p["kind"] == "log-truncated" for p in problems
+        ):
+            problems.append(_problem("root-mismatch", None,
+                                     f"latest STH covers {sths[-1]['tree_size']} of {len(leaves)} entries"))
+        if not sths and entries:
+            problems.append(_problem("root-mismatch", None, "entries exist but no STH found"))
+
+        # Check 3: state conformance — derived expected state vs actual guarded files.
+        expected = self.derived_state()
+        last_index: dict[str, int] = {}
+        for e in entries:
+            last_index[e["path"]] = e["index"]
+        actual = {self._rel(p): p for p in self.guarded_files()}
+        for rel, exp_hash in expected.items():
+            if rel not in actual:
+                problems.append(_problem("missing", rel, "file recorded in log but absent on disk",
+                                         last_index.get(rel)))
+            elif file_content_hash(actual[rel]) != exp_hash:
+                problems.append(_problem("modified", rel, "file content differs from last recorded hash",
+                                         last_index.get(rel)))
+        for rel in actual:
+            if rel not in expected:
+                problems.append(_problem("unlogged", rel, "file on disk was never recorded in the log"))
+
+        ok = not problems
+        return VerifyReport(ok=ok, exit_code=0 if ok else 1, problems=problems)
