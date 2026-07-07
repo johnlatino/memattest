@@ -47,3 +47,14 @@ def test_collect_survives_broken_provider(monkeypatch):
     monkeypatch.setattr(provenance, "_entry_point_providers", lambda: [BrokenEP()])
     claims = provenance.collect()
     assert claims["broken"] == {"error": "provider exploded"}
+
+
+def test_collect_survives_broken_builtin(monkeypatch):
+    def boom():
+        raise RuntimeError("psutil hiccup")
+
+    monkeypatch.setattr(provenance, "process_claims", boom)
+    claims = provenance.collect()
+    assert claims["process"] == {"error": "psutil hiccup"}
+    for key in ("agent", "machine", "session"):
+        assert key in claims and "error" not in claims[key]

@@ -67,12 +67,19 @@ def _entry_point_providers():
     return list(entry_points(group=ENTRY_POINT_GROUP))
 
 
+def _safe(fn) -> dict:
+    try:
+        return fn()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def collect(extra: dict | None = None) -> dict:
     claims = {
-        "agent": agent_claims(),
-        "process": process_claims(),
-        "machine": machine_claims(),
-        "session": session_claims(),
+        "agent": _safe(agent_claims),
+        "process": _safe(process_claims),
+        "machine": _safe(machine_claims),
+        "session": _safe(session_claims),
     }
     for ep in _entry_point_providers():
         try:
