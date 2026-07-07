@@ -1,3 +1,5 @@
+import pytest
+
 from memattest.identity import Identity, KeyStore
 from memattest.seal import SthChain, build_sth, verify_sth
 from memattest.errors import KeyStoreError
@@ -52,3 +54,22 @@ def test_chain_append_and_load(tmp_path):
     chain.append(b)
     assert chain.load_all() == [a, b]
     assert chain.latest() == b
+
+
+def test_chain_append_never_overwrites(tmp_path):
+    ident = make_identity()
+    chain = SthChain(tmp_path / ".memattest")
+    chain.append(build_sth(1, b"\x01" * 32, ident))
+    # Simulate a second writer/count desync targeting the same slot:
+    (tmp_path / ".memattest" / "sth" / "000002.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="append-only"):
+        chain.append(build_sth(2, b"\x02" * 32, ident))
+
+
+def test_verify_sth_malformed_returns_false():
+    ident = make_identity()
+    sth = build_sth(1, b"\xaa" * 32, ident)
+    missing = {k: v for k, v in sth.items() if k != "signature"}
+    assert not verify_sth(missing, ident.public_key_bytes)
+    bad_hex = dict(sth, signature="zz-not-hex")
+    assert not verify_sth(bad_hex, ident.public_key_bytes)

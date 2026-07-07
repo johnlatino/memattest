@@ -21,7 +21,11 @@ def build_sth(tree_size: int, root: bytes, identity: Identity, timestamp: str | 
 
 
 def verify_sth(sth: dict, public_key_bytes: bytes) -> bool:
-    return verify_signature(public_key_bytes, _payload(sth), bytes.fromhex(sth["signature"]))
+    try:
+        signature = bytes.fromhex(sth["signature"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return verify_signature(public_key_bytes, _payload(sth), signature)
 
 
 class SthChain:
@@ -33,7 +37,10 @@ class SthChain:
 
     def append(self, sth: dict) -> None:
         n = len(list(self.sth_dir.glob("*.json")))
-        (self.sth_dir / f"{n:06d}.json").write_bytes(canonical_json(sth))
+        target = self.sth_dir / f"{n:06d}.json"
+        if target.exists():
+            raise ValueError(f"STH file {target.name} already exists; chain is append-only")
+        target.write_bytes(canonical_json(sth))
 
     def load_all(self) -> list[dict]:
         files = sorted(self.sth_dir.glob("*.json"))
