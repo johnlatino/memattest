@@ -2,6 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **STATUS (2026-07-09): Tasks 1–13 are complete** and merged as v1 (`fadb0c6`).
+> The spec §12.5 dogfooding pass ran post-merge on this repository's own agent
+> memory and produced a hardening round (`f8ec96e`): JSON-based hook report
+> delivery (`hook session-start`), an agent-side PreToolUse guard
+> (`hook pre-tool-use`) covering adopt invocations and settings-file edits,
+> memory-dir derivation for adopt/record, lazy state-dir creation, lazy
+> cryptography imports, and README/hardening documentation. Unchecked boxes
+> below reflect that per-step tracking happened outside this file, not
+> unfinished work. Remaining work is tracked in "Next steps" at the end of
+> this file and spec §13.
+
 **Goal:** Build the memattest v1 prototype — a Python library + CLI that makes an agent's memory directory tamper-evident via an RFC 6962 append-only Merkle log with signed tree heads — with a Claude Code hook integration.
 
 **Architecture:** A pure-Python core (`canonical` JSON → `merkle` log → `entry`/`store` persistence → `identity`/`seal` signing → `provenance` claims → `core` orchestration) wrapped by an argparse CLI whose exit codes (0/1/2/3) drive harness hooks. All state lives in `<memory-dir>/.memattest/` as plain JSON. Spec: `docs/superpowers/specs/2026-07-06-memattest-design.md`.
@@ -2185,6 +2196,62 @@ git commit -m "Add README with quickstart, keystore options, and security limita
 ```
 
 ---
+
+## Next steps (post-v1, in rough priority order)
+
+Added 2026-07-09 after the dogfood/hardening round. Each item below needs its
+own brainstorm/design pass before implementation; this is a roadmap, not a
+task breakdown. Items 1–3 are v1.x-sized; the rest are v2-sized (spec §13).
+
+1. **Keystore-sealed pubkey cross-check** (spec §2 names this the fast-follow).
+   Verification currently trusts `.memattest/pubkey.ed25519` on disk, so an
+   attacker with write access to the memory directory can replace the key and
+   re-sign a forged history. Seal a copy of (or a hash of) the public key in
+   the OS keystore at init and cross-check it during verify; divergence is a
+   `PROBLEM`, not an operational error.
+
+2. **Per-log `config.toml` in `.memattest/`** (spec §13). Record the keystore
+   backend chosen at init — verifying with the wrong `--keystore` today yields
+   a confusing key-not-found error instead of "this log uses the file
+   backend". This file is also the natural home for the watch list (item 3)
+   and future provider/guard-glob config. Note the config file itself is
+   inside the trust boundary and must be covered by the same integrity story
+   it configures (hash it into the log or seal it with the key).
+
+3. **Watch list: attest designated files outside the memory directory.**
+   The dogfood round showed the hook configuration is part of the trust
+   surface: an attacker who edits the Claude Code settings files (or
+   `CLAUDE.md`) can un-hook or misdirect memattest, and the current answer is
+   only prevention-at-the-agent (PreToolUse guard) plus the silence canary.
+   Let `init`/`adopt` record content hashes of user-designated watch files
+   (e.g. `.claude/settings.json`, `settings.local.json`, `CLAUDE.md`), and
+   have `verify`/`hook session-start` report divergence in them exactly like
+   memory-file tampering. Detection complements the existing guard: agent
+   edits are blocked, human/out-of-band edits become visible next session,
+   and only total hook removal remains — caught by the silence canary.
+   Open design questions for the brainstorm: watched paths live outside
+   `memory_dir`, so the entry `path` namespace must distinguish them (prefix
+   vs. separate log — and whether that requires a scheme bump per §9);
+   watched files change legitimately more often than memories, so the
+   adopt-to-reconcile flow needs to stay low-friction without becoming a
+   rubber stamp; and the watch list itself must be tamper-evident (item 2).
+
+4. **External root anchoring** (spec §13; closes the rollback limitation).
+   Publish or timestamp the latest STH somewhere an attacker with local write
+   access cannot reach (transparency log, RFC 3161 TSA, or even a remote git
+   ref). Prerequisite thinking for the v2 validator service.
+
+5. **v2 resident validator service** under a separate OS account
+   (spec §2/§13; closes the same-user-malware gap, enables near-real-time
+   watching rather than session-start batch verification).
+
+6. **Distribution and CI**: publish to PyPI (README quickstart currently
+   requires a local clone) and stand up the deferred hosted CI matrix
+   (Windows + Linux) once the repo has a remote.
+
+7. **Ecosystem** (spec §13): mediated-store mode (MCP write path,
+   enforcement), middleware adapters (LangChain / mem0 / AutoGen), OWASP
+   Agent Memory Guard positioning, remote/synced store support.
 
 ## Self-Review (completed during planning)
 
