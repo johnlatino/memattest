@@ -409,3 +409,7 @@ through hook JSON, because Claude Code discards a SessionStart hook's stdout
 on any non-zero exit. A failing `verify` also prints a one-line
 `verification FAILED` alert to stderr, so a harness that surfaces only the
 stderr of a failed hook still says something useful.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
