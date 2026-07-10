@@ -8,13 +8,15 @@ class LogStore:
     """Append-only persistence: one canonical-JSON file per leaf under entries/."""
 
     def __init__(self, state_dir: Path):
+        # Created lazily on first append: constructing a store (e.g. for a
+        # verify pointed at the wrong directory) must not plant state dirs.
         self.entries_dir = state_dir / "entries"
-        self.entries_dir.mkdir(parents=True, exist_ok=True)
 
     def count(self) -> int:
         return len(list(self.entries_dir.glob("*.json")))
 
     def append(self, entry: dict) -> None:
+        self.entries_dir.mkdir(parents=True, exist_ok=True)
         expected = self.count()
         if entry["index"] != expected:
             raise ValueError(f"entry index {entry['index']} != next index {expected}")

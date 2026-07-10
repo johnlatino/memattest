@@ -77,6 +77,7 @@ class MemAttest:
         if self.initialized:
             raise MemAttestError(f"{self.memory_dir} is already initialized")
         identity = Identity.generate(self.keystore, self.key_name)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
         self.pubkey_path.write_text(identity.public_key_bytes.hex(), encoding="ascii")
         entries = [self._append(identity, "adopt", p, reason) for p in self.guarded_files()]
         self._seal_current_tree(identity)

@@ -1,16 +1,44 @@
+from __future__ import annotations
+
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from . import merkle
-from .core import MemAttest, VerifyReport
 from .errors import MemAttestError
-from .identity import FileKeyStore, KeyringKeyStore
+
+if TYPE_CHECKING:
+    from .core import MemAttest, VerifyReport
+
+# The signing/verification machinery (core, identity, merkle) is imported
+# lazily inside the functions that need it: 'hook pre-tool-use' runs on every
+# shell command of a session and must not pay the cryptography import.
+
+
+def _derive_memory_dir(paths: list[Path]) -> Path:
+    from .core import STATE_DIR_NAME
+
+    # Strictly the files' containing folder — deliberately no ancestor search,
+    # so a typo can never silently land in some other guarded directory.
+    parents = {p.resolve().parent for p in paths}
+    if len(parents) != 1:
+        raise MemAttestError("paths are in different directories; pass --memory-dir explicitly")
+    (parent,) = parents
+    if not (parent / STATE_DIR_NAME).is_dir():
+        raise MemAttestError(
+            f"{parent} is not an initialized memory directory; "
+            "run init there first, or pass --memory-dir explicitly"
+        )
+    return parent
 
 
 def _make_ma(args) -> MemAttest:
+    from .core import MemAttest
+    from .identity import FileKeyStore, KeyringKeyStore
+
     memory_dir = Path(args.memory_dir)
     if args.keystore == "file":
         passphrase = os.environ.get("MEMATTEST_PASSPHRASE")
@@ -22,10 +50,9 @@ def _make_ma(args) -> MemAttest:
     return MemAttest(memory_dir, keystore=ks)
 
 
-def _print_report(report: VerifyReport, entry_count: int) -> None:
+def _report_lines(report: VerifyReport, entry_count: int) -> list[str]:
     if report.ok:
-        print(f"OK {entry_count} entries verified")
-        return
+        return [f"OK {entry_count} entries verified"]
     lines = [
         f"PROBLEM kind={p['kind']} path={p['path']} detail={p['detail']} last_valid={p['last_valid_index']}"
         for p in report.problems
@@ -34,10 +61,18 @@ def _print_report(report: VerifyReport, entry_count: int) -> None:
         "Remediation: restore the affected files and re-run verify, or run "
         "'memattest adopt <paths> --reason ...' to accept the current state."
     )
-    for line in lines:
+    return lines
+
+
+def _print_report(report: VerifyReport, entry_count: int) -> None:
+    for line in _report_lines(report, entry_count):
         print(line)
-    for line in lines:
-        print(line, file=sys.stderr)
+    if not report.ok:
+        # One concise alert on stderr: harnesses that surface only the stderr
+        # of a failing hook (settings still running plain 'verify' at
+        # SessionStart) get an untruncated pointer to the full stdout report.
+        print(f"memattest: verification FAILED: {len(report.problems)} problem(s) found — "
+              "run 'memattest verify' for the full report", file=sys.stderr)
 
 
 def cmd_init(args) -> int:
@@ -48,6 +83,8 @@ def cmd_init(args) -> int:
 
 
 def cmd_record(args) -> int:
+    if args.memory_dir is None:
+        args.memory_dir = _derive_memory_dir([Path(args.path)])
     ma = _make_ma(args)
     ma.record(Path(args.path), op=args.op)
     return 0
@@ -64,9 +101,18 @@ def cmd_adopt(args) -> int:
     if not sys.stdin.isatty():
         print("error: adopt requires an interactive terminal", file=sys.stderr)
         return 2
+    if args.memory_dir is None:
+        args.memory_dir = _derive_memory_dir([Path(p) for p in args.paths])
     ma = _make_ma(args)
-    print(f"About to adopt {len(args.paths)} file(s) as trusted. Reason: {args.reason}")
-    if input("Type 'adopt' to confirm: ").strip() != "adopt":
+    if not ma.initialized:
+        raise MemAttestError("not initialized; run init first")
+    print(f"About to adopt {len(args.paths)} file(s) as trusted "
+          f"in {Path(args.memory_dir).resolve()}. Reason: {args.reason}")
+    try:
+        confirmed = input("Type 'adopt' to confirm: ").strip() == "adopt"
+    except (EOFError, KeyboardInterrupt):
+        confirmed = False
+    if not confirmed:
         print("aborted", file=sys.stderr)
         return 2
     ma.adopt([Path(p) for p in args.paths], reason=args.reason)
@@ -82,6 +128,8 @@ def cmd_log(args) -> int:
 
 
 def cmd_prove(args) -> int:
+    from . import merkle
+
     ma = _make_ma(args)
     leaves = ma.store.leaf_bytes()
     if args.index is not None:
@@ -98,13 +146,18 @@ def cmd_prove(args) -> int:
     return 0
 
 
-def cmd_hook_post_tool_use(args) -> int:
+def _read_hook_payload() -> dict:
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError as exc:
         raise MemAttestError(f"malformed hook payload on stdin: {exc}") from exc
     if not isinstance(payload, dict):
         raise MemAttestError("malformed hook payload on stdin: expected a JSON object")
+    return payload
+
+
+def cmd_hook_post_tool_use(args) -> int:
+    payload = _read_hook_payload()
     file_path = (payload.get("tool_input") or {}).get("file_path")
     if not file_path:
         return 0
@@ -120,14 +173,95 @@ def cmd_hook_post_tool_use(args) -> int:
     return 0
 
 
-def _add_common(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--memory-dir", default=".")
+def cmd_hook_session_start(args) -> int:
+    # Claude Code injects a SessionStart hook's stdout into agent context only
+    # on exit 0, so the outcome must be delivered as hook JSON, never as a
+    # non-zero exit — including operational failures like a deleted
+    # .memattest directory, which would otherwise leave the agent silently
+    # trusting unguarded memory.
+    try:
+        ma = _make_ma(args)
+        report = ma.verify()
+        ok = report.ok
+        text = "memattest: " + "\n".join(_report_lines(report, ma.store.count()))
+    except MemAttestError as exc:
+        ok = False
+        text = f"memattest: verification could not run: {exc}"
+    out: dict = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": text,
+        }
+    }
+    if not ok:
+        out["systemMessage"] = text
+    print(json.dumps(out))
+    return 0
+
+
+# Matches an adopt invocation even when the executable is quoted, path-prefixed,
+# or named memattest.exe. Quotes are stripped first so `"...\memattest" adopt`
+# still matches. Renaming the binary defeats this; the hook is defense-in-depth.
+_ADOPT_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+adopt\b", re.IGNORECASE)
+
+# The Claude Code settings files configure the memattest hooks themselves, and
+# 'disableAllHooks' silences every hook from any settings scope — an agent
+# that can touch either can un-hook memattest for its next session. Matched
+# broadly (fail-closed), like the adopt guard.
+_SETTINGS_TARGET = re.compile(r"\.claude[/\\]settings(\.local)?\.json|disableAllHooks",
+                              re.IGNORECASE)
+
+
+def _deny(reason: str) -> None:
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }))
+
+
+def cmd_hook_pre_tool_use(args) -> int:
+    payload = _read_hook_payload()
+    tool_input = payload.get("tool_input") or {}
+
+    file_path = tool_input.get("file_path")
+    if file_path and _SETTINGS_TARGET.search(str(file_path)):
+        _deny("the Claude Code settings files configure the memattest hooks "
+              "and may only be edited by a human, not the agent")
+        return 0
+
+    command = tool_input.get("command")
+    if not command:
+        return 0
+    normalized = command.replace('"', " ").replace("'", " ")
+    if _ADOPT_INVOCATION.search(normalized):
+        _deny("memattest adopt may only be run by a human at an "
+              "interactive terminal, not by the agent")
+    elif _SETTINGS_TARGET.search(normalized):
+        _deny("this command touches the Claude Code settings files (or the "
+              "hook-disabling flag) that configure the memattest hooks; "
+              "only a human may change them")
+    return 0
+
+
+def _add_common(p: argparse.ArgumentParser, *, memory_dir_default: str | None = ".") -> None:
+    p.add_argument("--memory-dir", default=memory_dir_default)
     p.add_argument("--keystore", choices=["keyring", "file"], default="keyring")
 
 
+class _HintingParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        if message.startswith("unrecognized arguments:"):
+            message += ("\nhint: the memory directory is passed as "
+                        "'--memory-dir <path>', not as a positional argument")
+        super().error(message)
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="memattest",
-                                     description="Tamper-evident agent memory (append-only Merkle log)")
+    parser = _HintingParser(prog="memattest",
+                            description="Tamper-evident agent memory (append-only Merkle log)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("init", help="initialize and baseline existing memories")
@@ -135,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_init)
 
     p = sub.add_parser("record", help="append one write/delete event")
-    _add_common(p)
+    _add_common(p, memory_dir_default=None)  # derived from --path's folder when omitted
     p.add_argument("--path", required=True)
     p.add_argument("--op", choices=["write", "delete"], default="write")
     p.set_defaults(fn=cmd_record)
@@ -145,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_verify)
 
     p = sub.add_parser("adopt", help="bless out-of-band changes (interactive only)")
-    _add_common(p)
+    _add_common(p, memory_dir_default=None)  # derived from the paths' folder when omitted
     p.add_argument("paths", nargs="+")
     p.add_argument("--reason", required=True)
     p.set_defaults(fn=cmd_adopt)
@@ -165,6 +299,12 @@ def main(argv: list[str] | None = None) -> int:
     hp = hook_sub.add_parser("post-tool-use")
     _add_common(hp)
     hp.set_defaults(fn=cmd_hook_post_tool_use)
+    hp = hook_sub.add_parser("session-start")
+    _add_common(hp)
+    hp.set_defaults(fn=cmd_hook_session_start)
+    hp = hook_sub.add_parser("pre-tool-use")
+    _add_common(hp)
+    hp.set_defaults(fn=cmd_hook_pre_tool_use)
 
     args = parser.parse_args(argv)
     try:

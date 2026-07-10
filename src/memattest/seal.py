@@ -32,10 +32,11 @@ class SthChain:
     """Append-only chain of signed tree heads under sth/."""
 
     def __init__(self, state_dir: Path):
+        # Created lazily on first append; see LogStore.__init__.
         self.sth_dir = state_dir / "sth"
-        self.sth_dir.mkdir(parents=True, exist_ok=True)
 
     def append(self, sth: dict) -> None:
+        self.sth_dir.mkdir(parents=True, exist_ok=True)
         n = len(list(self.sth_dir.glob("*.json")))
         target = self.sth_dir / f"{n:06d}.json"
         if target.exists():
