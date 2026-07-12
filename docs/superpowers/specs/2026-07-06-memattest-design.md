@@ -158,7 +158,7 @@ Entries are plain JSON on disk deliberately: the log is inspectable and reconstr
 
 **Record** (post-write hook, CLI `memattest record`): hash the written file → gather claims from all registered providers → build canonical entry → append leaf → compute new root → sign STH with consistency proof against the previous STH → append STH to chain.
 
-**Verify** (session-start hook, or on demand). Four independent checks, all must pass:
+**Verify** (session-start hook, or on demand). Four independent checks (check 0 is skippable only by the explicit `--no-key-check` flag), all run checks must pass:
 0. **Signing-key cross-check** (added by spec 2026-07-12): re-derive the public key from the signing seed in the backend keystore and compare with `pubkey.ed25519` on disk. A replaced disk pubkey is `key-mismatch`; a missing keystore entry is `key-missing`; on mismatch the derived key becomes the verification key for the checks below. Skippable only with the explicit `--no-key-check` flag (copied-log audit on a machine without the key).
 1. **Tree integrity:** recompute the Merkle tree from entries; root must match the latest STH, whose signature must verify against the public key.
 2. **History consistency:** every successive STH pair must satisfy an RFC 6962 consistency proof (today's log is an append-only extension of yesterday's — no rewrite, reorder, or truncation).

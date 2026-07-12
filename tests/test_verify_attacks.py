@@ -219,6 +219,17 @@ def test_unreachable_keystore_is_operational_error_naming_the_flag(mem):
     assert mem.verify(key_check=False).ok
 
 
+def test_invalid_seed_in_keystore_is_operational_error_naming_the_flag(mem):
+    # A keystore entry that unseals cleanly but holds the wrong number of
+    # bytes cannot become an Ed25519 private key; that must surface as the
+    # same operational error as an unreachable backend keystore, not as a
+    # raw ValueError escaping verify().
+    mem.keystore.data[mem.key_name] = b"\x01" * 16
+    with pytest.raises(MemAttestError, match="no-key-check"):
+        mem.verify()
+    assert mem.verify(key_check=False).ok
+
+
 def test_key_check_false_never_touches_keystore(mem):
     class ExplodingKeyStore(KeyStore):
         def seal(self, name, secret):

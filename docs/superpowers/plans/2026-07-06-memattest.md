@@ -2214,8 +2214,8 @@ task breakdown. Items 1–3 are v1.x-sized; the rest are v2-sized (spec §13).
 
 2. **Per-log `config.toml` in `.memattest/`** (spec §13). Record the keystore
    backend chosen at init — verifying with the wrong `--keystore` today yields
-   a confusing key-not-found error instead of "this log uses the file
-   backend". This file is also the natural home for the watch list (item 3)
+   a false `key-missing` tamper finding instead of a clear "this log uses the
+   file backend keystore" message. This file is also the natural home for the watch list (item 3)
    and future provider/guard-glob config. Note the config file itself is
    inside the trust boundary and must be covered by the same integrity story
    it configures (hash it into the log or seal it with the key).

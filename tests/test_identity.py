@@ -116,3 +116,31 @@ def test_file_keystore_wrong_passphrase_is_not_keynotfound(tmp_path):
     with pytest.raises(KeyStoreError) as exc_info:
         FileKeyStore(tmp_path / "key.sealed", passphrase=b"wrong").unseal("k1")
     assert not isinstance(exc_info.value, KeyNotFoundError)
+
+
+# --- invalid seed material must not escape as a raw ValueError --------------
+# A sealed value that unseals cleanly but is the wrong length for an Ed25519
+# seed used to reach Ed25519PrivateKey.from_private_bytes() unguarded, which
+# raises plain ValueError -- invisible to callers that only catch
+# KeyStoreError (e.g. the verify cross-check and the SessionStart hook).
+
+
+def test_load_wrong_length_seed_raises_keystoreerror_not_valueerror():
+    ks = MemoryKeyStore()
+    ks.seal("k1", b"\x01" * 16)  # Ed25519 seeds are 32 bytes
+    with pytest.raises(KeyStoreError):
+        Identity.load(ks, "k1")
+
+
+def test_file_keystore_wrong_length_seed_raises_keystoreerror(tmp_path):
+    ks = FileKeyStore(tmp_path / "key.sealed", passphrase=b"pw")
+    ks.seal("k1", b"\x01" * 16)
+    with pytest.raises(KeyStoreError):
+        Identity.load(ks, "k1")
+
+
+def test_keyring_bad_base64_raises_keystoreerror_not_binascii_error(monkeypatch):
+    import keyring
+    monkeypatch.setattr(keyring, "get_password", lambda service, name: "%%%not-base64%%%")
+    with pytest.raises(KeyStoreError):
+        KeyringKeyStore(service="memattest-test").unseal("whatever")

@@ -378,3 +378,21 @@ def test_hook_session_start_key_missing_reaches_agent_and_user(memdir, capsys):
     out = json.loads(capsys.readouterr().out)
     assert "kind=key-missing" in out["hookSpecificOutput"]["additionalContext"]
     assert "kind=key-missing" in out["systemMessage"]
+
+
+def test_hook_session_start_invalid_seed_reports_instead_of_failing(memdir, capsys):
+    # A sealed value that unseals cleanly but is the wrong length for an
+    # Ed25519 seed used to raise a raw ValueError out of verify(), which
+    # cmd_hook_session_start only catches as MemAttestError -- exit 2 with
+    # no hook JSON, a silent SessionStart.
+    from memattest.identity import FileKeyStore
+
+    run("init", *base(memdir))
+    ks = FileKeyStore(memdir / ".memattest" / "key.sealed", passphrase=b"test-pw")
+    ks.seal(str(memdir.resolve()), b"\x01" * 16)
+    capsys.readouterr()
+    assert run("hook", "session-start", *base(memdir)) == 0
+    out = json.loads(capsys.readouterr().out)
+    context = out["hookSpecificOutput"]["additionalContext"]
+    assert "verification could not run" in context
+    assert "verification could not run" in out["systemMessage"]

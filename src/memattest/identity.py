@@ -45,7 +45,10 @@ class KeyringKeyStore(KeyStore):
             raise KeyStoreError(f"keyring unseal failed: {exc}") from exc
         if value is None:
             raise KeyNotFoundError(f"no key named {name!r} in keyring service {self.service!r}")
-        return base64.b64decode(value)
+        try:
+            return base64.b64decode(value)
+        except binascii.Error as exc:
+            raise KeyStoreError(f"keyring unseal failed: {exc}") from exc
 
 
 class FileKeyStore(KeyStore):
@@ -116,7 +119,11 @@ class Identity:
     @classmethod
     def load(cls, keystore: KeyStore, name: str) -> "Identity":
         seed = keystore.unseal(name)
-        return cls(Ed25519PrivateKey.from_private_bytes(seed))
+        try:
+            private = Ed25519PrivateKey.from_private_bytes(seed)
+        except ValueError as exc:
+            raise KeyStoreError(f"sealed value is not a valid Ed25519 seed: {exc}") from exc
+        return cls(private)
 
 
 def verify_signature(public_key_bytes: bytes, data: bytes, signature: bytes) -> bool:
