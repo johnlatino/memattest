@@ -93,6 +93,14 @@ signature checks that follow. Consequences:
 When the cross-check is skipped (`key_check=False`) or the key is missing
 (`key-missing`), the remaining checks fall back to the disk pubkey, as today.
 
+**`key-missing` semantics.** `key-missing` means the log's authorship can no
+longer be established locally: verify cannot distinguish accidental key loss
+from a hostile rewrite in which the attacker also deleted the keystore entry,
+re-signed the log with their own key, and replaced the disk pubkey (the
+fallback checks then pass against the attacker's key). Memory contents must
+therefore be treated as untrusted and manually reviewed by a human before
+re-init re-adopts them; the `key-missing` detail text says so.
+
 **Placement and precedence.** The cross-check runs before unknown-scheme
 dispatch, so its problems are included in the early exit-3 return. Exit-code
 precedence is unchanged: unknown scheme → 3; otherwise any problem → 1;
