@@ -331,3 +331,50 @@ def test_hook_pre_tool_use_malformed_stdin_is_operational_error(memdir, capsys, 
     monkeypatch.setattr("sys.stdin", io.StringIO("{ not json"))
     assert run("hook", "pre-tool-use", *base(memdir)) == 2
     assert "malformed hook payload" in capsys.readouterr().err
+
+
+# --- verify --no-key-check and the signing-key cross-check ------------------
+
+
+def test_verify_reports_key_missing_when_keystore_entry_deleted(memdir, capsys):
+    run("init", *base(memdir))
+    (memdir / ".memattest" / "key.sealed").unlink()  # FileKeyStore backing file
+    capsys.readouterr()
+    assert run("verify", *base(memdir)) == 1
+    out = capsys.readouterr().out
+    assert "kind=key-missing" in out
+
+
+def test_verify_wrong_passphrase_is_operational_error_naming_the_flag(memdir, capsys, monkeypatch):
+    run("init", *base(memdir))
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "wrong")
+    capsys.readouterr()
+    assert run("verify", *base(memdir)) == 2
+    assert "--no-key-check" in capsys.readouterr().err
+
+
+def test_verify_no_key_check_skips_cross_check(memdir, capsys):
+    run("init", *base(memdir))
+    (memdir / ".memattest" / "key.sealed").unlink()
+    capsys.readouterr()
+    assert run("verify", *base(memdir), "--no-key-check") == 0
+    assert "OK" in capsys.readouterr().out
+
+
+def test_verify_no_key_check_works_without_passphrase(memdir, capsys, monkeypatch):
+    # Audit of a copied log: no MEMATTEST_PASSPHRASE on the auditing machine.
+    run("init", *base(memdir))
+    monkeypatch.delenv("MEMATTEST_PASSPHRASE")
+    capsys.readouterr()
+    assert run("verify", *base(memdir), "--no-key-check") == 0
+    assert "OK" in capsys.readouterr().out
+
+
+def test_hook_session_start_key_missing_reaches_agent_and_user(memdir, capsys):
+    run("init", *base(memdir))
+    (memdir / ".memattest" / "key.sealed").unlink()
+    capsys.readouterr()
+    assert run("hook", "session-start", *base(memdir)) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "kind=key-missing" in out["hookSpecificOutput"]["additionalContext"]
+    assert "kind=key-missing" in out["systemMessage"]

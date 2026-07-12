@@ -42,9 +42,12 @@ def _make_ma(args) -> MemAttest:
     memory_dir = Path(args.memory_dir)
     if args.keystore == "file":
         passphrase = os.environ.get("MEMATTEST_PASSPHRASE")
-        if not passphrase:
+        if not passphrase and not getattr(args, "no_key_check", False):
             raise MemAttestError("keystore 'file' requires MEMATTEST_PASSPHRASE to be set")
-        ks = FileKeyStore(memory_dir / ".memattest" / "key.sealed", passphrase.encode("utf-8"))
+        # Under --no-key-check the backend keystore is never consulted, so a
+        # missing passphrase must not block a copied-log audit.
+        ks = FileKeyStore(memory_dir / ".memattest" / "key.sealed",
+                          (passphrase or "").encode("utf-8"))
     else:
         ks = KeyringKeyStore()
     return MemAttest(memory_dir, keystore=ks)
@@ -92,7 +95,7 @@ def cmd_record(args) -> int:
 
 def cmd_verify(args) -> int:
     ma = _make_ma(args)
-    report = ma.verify()
+    report = ma.verify(key_check=not args.no_key_check)
     _print_report(report, ma.store.count())
     return report.exit_code
 
@@ -274,8 +277,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--op", choices=["write", "delete"], default="write")
     p.set_defaults(fn=cmd_record)
 
-    p = sub.add_parser("verify", help="run the three integrity checks")
+    p = sub.add_parser("verify", help="run the integrity checks")
     _add_common(p)
+    p.add_argument("--no-key-check", action="store_true",
+                   help="skip the signing-key cross-check against the backend "
+                        "keystore (for auditing a copied log on a machine "
+                        "without the key)")
     p.set_defaults(fn=cmd_verify)
 
     p = sub.add_parser("adopt", help="bless out-of-band changes (interactive only)")
