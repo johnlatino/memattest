@@ -3,7 +3,7 @@ from pathlib import Path
 
 from . import merkle, provenance
 from .entry import SCHEME, build_entry, file_content_hash
-from .errors import MemAttestError
+from .errors import KeyNotFoundError, KeyStoreError, MemAttestError
 from .identity import Identity, KeyringKeyStore, KeyStore
 from .seal import SthChain, build_sth, verify_sth
 from .store import LogStore
@@ -108,7 +108,7 @@ class MemAttest:
                 state.pop(e["path"], None)
         return state
 
-    def verify(self) -> VerifyReport:
+    def verify(self, key_check: bool = True) -> VerifyReport:
         problems: list[dict] = []
         entries = self.store.load_all()
         sths = self.sth_chain.load_all()
@@ -125,6 +125,40 @@ class MemAttest:
         # If we have entries/STHs but no initialization-level setup, that's an error
         if not entries and not sths:
             raise MemAttestError("not initialized; run init first")
+
+        # Cross-check (spec 2026-07-12): re-derive the public key from the
+        # signing seed held in the backend keystore and compare it with the
+        # on-disk pubkey. The backend keystore entry is the trust anchor; the
+        # disk file is only the claim being checked. On mismatch the derived
+        # key takes over as the STH verification key below, so a re-signed
+        # forged history also fails as bad-signature instead of verifying
+        # against the attacker's planted pubkey.
+        if key_check:
+            try:
+                derived = Identity.load(self.keystore, self.key_name).public_key_bytes
+            except KeyNotFoundError:
+                problems.append(_problem(
+                    "key-missing", None,
+                    f"backend keystore has no signing key for {self.key_name!r}; "
+                    "the log's authorship cannot be established (accidental key "
+                    "loss and a hostile rewrite are indistinguishable) and "
+                    "appends will fail — manually review memory contents "
+                    "before re-initializing",
+                ))
+            except KeyStoreError as exc:
+                raise MemAttestError(
+                    f"keystore unavailable for signing-key cross-check: {exc}; "
+                    "pass --no-key-check to verify without it"
+                ) from exc
+            else:
+                if derived != pub:
+                    problems.append(_problem(
+                        "key-mismatch", None,
+                        f"pubkey.ed25519 contains {pub.hex()} but the key "
+                        f"derived from the backend keystore is {derived.hex()}; "
+                        "the on-disk pubkey was replaced",
+                    ))
+                    pub = derived
 
         # Scheme dispatch (spec §9): refuse to guess at unknown schemes.
         # Intentional: unknown schemes make the log unverifiable as a whole; report only exit-3 problems rather than guessing at tree/state checks.
