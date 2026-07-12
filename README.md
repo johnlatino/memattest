@@ -247,6 +247,23 @@ Each backend seals the key under a name derived from the memory directory's
 resolved path, so switching backends after `init` means memattest can no
 longer unseal the original key.
 
+Every `verify` — including the session-start hook — cross-checks
+`pubkey.ed25519` on disk against the public key re-derived from the signing
+seed in the backend keystore. To audit a *copied* log on a machine that never
+had the key — a restored backup before re-initializing, incident response on
+a clean machine, a third-party or CI audit — pass `--no-key-check`:
+
+```bash
+memattest verify --memory-dir <COPY_OF_MEMORY_DIR> --no-key-check
+```
+
+This skips only the backend-keystore cross-check; signatures, tree
+consistency, and file state are still fully verified against the pubkey file
+that travels with the log. After restoring a backup onto a new machine,
+verify with `--no-key-check` first and re-init only once the report is clean
+and you have reviewed the memory contents — re-init adopts whatever is on
+disk.
+
 ## Hardening your installation
 
 memattest detects tampering; it does not prevent it. Filesystem access
@@ -269,6 +286,13 @@ In rough priority order:
   disable or subvert verification. Apply the same access
   restrictions to your synced memattest repo and its `.venv` that you apply to the memory
   directory.
+- **The backend keystore is the trust anchor.** `verify` re-derives the
+  public key from the keystore-held signing seed and cross-checks the disk
+  copy, so your OS credential store (or the `MEMATTEST_PASSPHRASE` for the
+  file backend keystore) is part of the trust surface. A `key-missing`
+  finding at session start means the keystore entry is gone and the log's
+  authorship can no longer be established locally — treat the memory
+  contents as untrusted and review them manually before re-initializing.
 - **Invoke the hook commands by absolute path.** The settings template's
   `<MEMATTEST_BIN>` placeholder exists for exactly this reason: a bare
   `memattest` resolves through `PATH`, and a writable directory earlier on
@@ -382,12 +406,19 @@ A few related boundaries are worth calling out:
   You should rely on the harness-level `PreToolUse` guard to keep agents away from
   `adopt`; the signed `adopt` entry (previous bullet) is what keeps even a
   successful bypass from being silent.
-- **Trust anchor.** v1 verification trusts the public key file stored inside
-  `.memattest/`. An attacker with write access to the memory directory can
-  replace `pubkey.ed25519`, rewrite history, and re-sign it with their own
-  key, and v1 verify will report clean. Planned mitigations: cross-checking
-  the public key against a keystore-sealed copy (fast-follow), and external
-  root anchoring (v2).
+- **Trust anchor.** `verify` re-derives the public key from the signing seed
+  in the backend keystore and cross-checks `pubkey.ed25519` on disk, so an
+  attacker with write access to the memory directory who swaps the pubkey
+  and re-signs history is reported (`key-mismatch`, plus `bad-signature` on
+  the forged tree heads), and a deleted keystore entry is reported
+  (`key-missing`) at the next session start instead of surfacing later as a
+  failed append. A `key-missing` log's authorship cannot be established —
+  accidental key loss and a hostile rewrite that also deleted the keystore
+  entry are indistinguishable — so review memory contents manually before
+  re-adopting them under a new key. Same-user malware can rewrite the
+  keystore entry itself and defeat the cross-check; that gap remains until
+  the v2 validator service, as does rollback (next bullet). External root
+  anchoring (v2) hardens this further.
 - **Rollback.** Because every append seals a valid tree head, an attacker who
   deletes a suffix of entries together with their covering tree heads and the
   created files reverts the log to an earlier, fully valid sealed state
@@ -399,8 +430,8 @@ A few related boundaries are worth calling out:
 | Code | Meaning |
 |---|---|
 | 0 | Clean — no tampering or inconsistency detected |
-| 1 | Tamper detected — see the printed `PROBLEM` lines for file, hashes, and last-valid entry |
-| 2 | Operational error — e.g. not initialized, keystore unavailable, malformed hook payload; appends fail closed rather than record an unverifiable entry |
+| 1 | Tamper detected — see the printed `PROBLEM` lines for file, hashes, and last-valid entry; includes `key-mismatch` and `key-missing` from the signing-key cross-check |
+| 2 | Operational error — e.g. not initialized, backend keystore unreachable for the signing-key cross-check (`--no-key-check` skips it when auditing a copied log), malformed hook payload; appends fail closed rather than record an unverifiable entry |
 | 3 | Unknown scheme version — an entry was written by a newer scheme than this verifier understands, and is refused rather than guessed at |
 
 `memattest hook session-start` is a deliberate exception: it exits 0 for

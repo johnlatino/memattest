@@ -57,7 +57,7 @@ Data flow and adversary positions ([A1], [A2] are the two in-scope adversaries):
 - **Admin/SYSTEM-level attackers.** Requires TPM sealing or external root anchoring; deferred.
 - **Remote/synced memory stores.** Key distribution and multi-device identity deferred.
 - **Content poisoning through legitimate writes ("front-door" poisoning).** A compromised or prompt-injected agent recording a malicious memory through the normal write path, which produces a validly attested entry. By design out of scope (see §1).
-- **Trust anchor.** v1 verification trusts the public key file stored in `.memattest/`; an attacker with write access to the memory directory can replace it, rewrite history, and re-sign with their own key undetected. Mitigations: keystore-sealed pubkey cross-check (fast-follow), external root anchoring (v2).
+- **Trust anchor (mitigated 2026-07-12).** v1 verification trusted the public key file stored in `.memattest/`; an attacker with write access to the memory directory could replace it, rewrite history, and re-sign with their own key undetected. The signing-key cross-check (spec 2026-07-12) closes this: verify re-derives the public key from the backend-keystore-held seed and reports `key-mismatch`/`key-missing`. Remaining exposure: same-user malware that rewrites the keystore entry itself (v2 validator service), and rollback (below). External root anchoring (v2) hardens this further.
 - **Rollback.** Deleting a suffix of entries together with their covering tree heads and created files reverts the log to an earlier, fully valid sealed state undetected. Requires an external anchor for the latest tree head (v2).
 
 ## 3. Goals and non-goals
@@ -158,12 +158,13 @@ Entries are plain JSON on disk deliberately: the log is inspectable and reconstr
 
 **Record** (post-write hook, CLI `memattest record`): hash the written file → gather claims from all registered providers → build canonical entry → append leaf → compute new root → sign STH with consistency proof against the previous STH → append STH to chain.
 
-**Verify** (session-start hook, or on demand). Three independent checks, all must pass:
+**Verify** (session-start hook, or on demand). Four independent checks, all must pass:
+0. **Signing-key cross-check** (added by spec 2026-07-12): re-derive the public key from the signing seed in the backend keystore and compare with `pubkey.ed25519` on disk. A replaced disk pubkey is `key-mismatch`; a missing keystore entry is `key-missing`; on mismatch the derived key becomes the verification key for the checks below. Skippable only with the explicit `--no-key-check` flag (copied-log audit on a machine without the key).
 1. **Tree integrity:** recompute the Merkle tree from entries; root must match the latest STH, whose signature must verify against the public key.
 2. **History consistency:** every successive STH pair must satisfy an RFC 6962 consistency proof (today's log is an append-only extension of yesterday's — no rewrite, reorder, or truncation).
 3. **State conformance:** derive expected current state (latest event per path); diff against actual files. Divergence = out-of-band tampering, reported as *file X, expected hash H₁, found H₂, last valid at entry N (timestamp T)*.
 
-Verification of tree structure and file state requires only the **public** key; the sealed private key is needed only to append/seal. Exit codes distinguish: 0 clean · 1 tamper detected · 2 operational error · 3 unknown scheme version.
+Verification of tree structure and file state requires only the **public** key; the cross-check additionally consults the backend keystore unless `--no-key-check` is passed. The sealed private key is needed only to append/seal. Exit codes distinguish: 0 clean · 1 tamper detected · 2 operational error · 3 unknown scheme version.
 
 **Inspect** (`memattest log`, `memattest prove`): `log` prints entries human-readably; `prove` emits an RFC 6962 inclusion proof for a given entry or a consistency proof between two tree sizes, as JSON, so third parties holding only the public key and an STH can independently verify a memory's presence and position.
 
@@ -202,7 +203,7 @@ Exit codes per §7: 0 clean · 1 tamper detected · 2 operational error · 3 unk
 | Condition | Behavior |
 |---|---|
 | Tamper detected | Report precisely (file, hashes, last-valid entry); never auto-repair; exit 1 |
-| KeyStore unavailable (locked keyring, headless without Secret Service) | Verify still runs (public-key only). Appends fail **closed**: refuse to record unverifiable entries and tell the agent memory recording is paused; exit 2 |
+| KeyStore unavailable (locked keyring, headless without Secret Service) | Verify exits 2: the backend keystore is unreachable for the signing-key cross-check, and only the explicit `--no-key-check` flag (copied-log audit) skips it. Appends fail **closed**: refuse to record unverifiable entries and tell the agent memory recording is paused; exit 2 |
 | Unknown `scheme` version | Refuse to validate those entries, state why; exit 3 |
 | Log/STH corruption | Entries are plain JSON — reconstructable by inspection; worst case re-baseline via adopt (loud, signed, permanent) |
 | Hook missed a write | Next verify flags divergence; reconcile via adopt |

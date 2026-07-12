@@ -2203,12 +2203,14 @@ Added 2026-07-09 after the dogfood/hardening round. Each item below needs its
 own brainstorm/design pass before implementation; this is a roadmap, not a
 task breakdown. Items 1–3 are v1.x-sized; the rest are v2-sized (spec §13).
 
-1. **Keystore-sealed pubkey cross-check** (spec §2 names this the fast-follow).
-   Verification currently trusts `.memattest/pubkey.ed25519` on disk, so an
-   attacker with write access to the memory directory can replace the key and
-   re-sign a forged history. Seal a copy of (or a hash of) the public key in
-   the OS keystore at init and cross-check it during verify; divergence is a
-   `PROBLEM`, not an operational error.
+1. **Keystore-sealed pubkey cross-check** — **done 2026-07-12**
+   (spec `docs/superpowers/specs/2026-07-12-pubkey-crosscheck-design.md`,
+   plan `docs/superpowers/plans/2026-07-12-pubkey-crosscheck.md`).
+   Verify re-derives the public key from the backend-keystore-held signing
+   seed and cross-checks the on-disk `pubkey.ed25519`; divergence is
+   `key-mismatch`, a missing keystore entry is `key-missing` (both exit-1
+   `PROBLEM`s), and `--no-key-check` is the explicit opt-out for copied-log
+   audits.
 
 2. **Per-log `config.toml` in `.memattest/`** (spec §13). Record the keystore
    backend chosen at init — verifying with the wrong `--keystore` today yields
