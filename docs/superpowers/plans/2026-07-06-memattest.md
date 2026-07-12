@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **STATUS (2026-07-09): Tasks 1–13 are complete** and merged as v1 (`fadb0c6`).
-> The spec §12.5 dogfooding pass ran post-merge on this repository's own agent
+> The spec §12.5 self-testing pass ran post-merge on this repository's own agent
 > memory and produced a hardening round (`f8ec96e`): JSON-based hook report
 > delivery (`hook session-start`), an agent-side PreToolUse guard
 > (`hook pre-tool-use`) covering adopt invocations and settings-file edits,
@@ -2199,7 +2199,7 @@ git commit -m "Add README with quickstart, keystore options, and security limita
 
 ## Next steps (post-v1, in rough priority order)
 
-Added 2026-07-09 after the dogfood/hardening round. Each item below needs its
+Added 2026-07-09 after the self-testing/hardening round. Each item below needs its
 own brainstorm/design pass before implementation; this is a roadmap, not a
 task breakdown. Items 1–3 are v1.x-sized; the rest are v2-sized (spec §13).
 
@@ -2221,7 +2221,7 @@ task breakdown. Items 1–3 are v1.x-sized; the rest are v2-sized (spec §13).
    it configures (hash it into the log or seal it with the key).
 
 3. **Watch list: attest designated files outside the memory directory.**
-   The dogfood round showed the hook configuration is part of the trust
+   The self-testing round showed the hook configuration is part of the trust
    surface: an attacker who edits the Claude Code settings files (or
    `CLAUDE.md`) can un-hook or misdirect memattest, and the current answer is
    only prevention-at-the-agent (PreToolUse guard) plus the silence canary.
@@ -2266,6 +2266,6 @@ task breakdown. Items 1–3 are v1.x-sized; the rest are v2-sized (spec §13).
 - §10 Claude Code integration → Tasks 10 (hook subcommand), 12 (settings template) ✔
 - §11 error handling table → Task 9 (report kinds), Task 10 (exit mapping, fail-closed append via KeyStoreError→2) ✔
 - §12 testing strategy → Tasks 2 (RFC vectors), 3 (exhaustive proof verification — chosen over randomized Hypothesis testing as strictly stronger at this scale, and one dependency lighter), 9 (all eight attack simulations), 11 (adopt semantics), 12 (end-to-end smoke on this Windows machine; Linux via the same pytest suite) ✔ — a hosted CI matrix is deferred until the repo has a remote.
-- §12.5 dogfooding → deferred by design until after v1 works (guarding this repo's own memory dir is a post-plan activity).
+- §12.5 self-testing → deferred by design until after v1 works (guarding this repo's own memory dir is a post-plan activity).
 
 **Type consistency check:** `canonical_json`, `root_hash(leaves)` over raw bytes, `LogStore(state_dir)`, `Identity.generate/load(keystore, name)`, `build_sth(tree_size, root, identity)`, `collect(extra)`, `MemAttest(memory_dir, keystore)`, `VerifyReport(ok, exit_code, problems)` — used identically across Tasks 4–12. Exit codes 0/1/2/3 consistent across Tasks 9–13.

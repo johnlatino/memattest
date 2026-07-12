@@ -214,7 +214,7 @@ Exit codes per §7: 0 clean · 1 tamper detected · 2 operational error · 3 unk
 2. **Attack simulations — one test per threat-model claim:** bit-flip a guarded file; reorder two entries; truncate the log; replace an entry wholesale; forge an STH without the key; back-date a timestamp; delete a guarded file; add an unlogged file. Each must be detected AND the report must name the correct file/entry.
 3. **Adopt semantics:** adopt-then-verify passes; history before the adopt still shows the divergence; adopt without TTY refuses.
 4. **Integration:** drive the real CLI against a temp memory dir with simulated hook payloads, on a Windows + Linux CI matrix; `KeyStore` faked in tests, `keyring` smoke-tested per platform.
-5. **Dogfood:** install the hooks in this repository's own `.claude/settings.json`, guarding the memory directory of the sessions used to build memattest.
+5. **Self-test:** install the hooks in this repository's own `.claude/settings.json`, guarding the memory directory of the sessions used to build memattest.
 
 ## 13. Future work (explicitly out of v1)
 
@@ -223,5 +223,5 @@ Exit codes per §7: 0 clean · 1 tamper detected · 2 operational error · 3 unk
 - Mediated-store mode (MCP tool as the only write path — enforcement, not just detection).
 - Middleware adapters for LangChain / mem0 / AutoGen; possible positioning as a complement or contribution to OWASP Agent Memory Guard.
 - Remote/synced store support (key distribution, multi-device identity).
-- Per-log `config.toml` in `.memattest/` recording the keystore backend chosen at init (plus provider config and guard globs). Today the backend is a per-invocation `--keystore` flag; verifying with a different backend than the log was initialized with produces a confusing key-not-found error instead of a clear "this log uses the file backend" message. Dropped from v1 scope during planning.
-- Watch list: attest designated files *outside* the memory directory — the hook configuration files (`.claude/settings.json`, `settings.local.json`) and `CLAUDE.md` are part of the trust surface (added 2026-07-09 after the dogfooding round; see the plan's "Next steps" §3 for the design questions). Record their hashes at init/adopt and report divergence at verify/session-start like any other tampering. Complements the v1.1 PreToolUse guard, which blocks the agent's own edit routes but cannot see out-of-band edits.
+- Per-log `config.toml` in `.memattest/` recording the keystore backend chosen at init (plus provider config and guard globs). Today the backend keystore is a per-invocation `--keystore` flag; verifying with a different backend keystore than the log was initialized with produces a false `key-missing` tamper finding instead of a clear "this log uses the file backend keystore" message. Dropped from v1 scope during planning.
+- Watch list: attest designated files *outside* the memory directory — the hook configuration files (`.claude/settings.json`, `settings.local.json`) and `CLAUDE.md` are part of the trust surface (added 2026-07-09 after the self-testing round; see the plan's "Next steps" §3 for the design questions). Record their hashes at init/adopt and report divergence at verify/session-start like any other tampering. Complements the v1.1 PreToolUse guard, which blocks the agent's own edit routes but cannot see out-of-band edits.

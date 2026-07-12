@@ -15,7 +15,7 @@
 - Exit codes: `0` clean · `1` tamper detected · `2` operational error · `3` unknown scheme version. `key-mismatch` and `key-missing` are new problem kinds under exit 1; the code set gains no values.
 - Entry `scheme` stays `"v1"`; this feature changes no on-disk format and never rehashes or rewrites existing entries/STHs.
 - The hot `hook pre-tool-use` path must keep importing nothing heavy: all changes to `cli.py` stay inside functions or argparse wiring; `tests/test_cli.py::test_cli_module_import_stays_lightweight` must keep passing.
-- Wording, everywhere (docs, docstrings, messages, commits): say "backend keystore", never bare "backend"; never use the word "dogfood" or variants; no contrastive-reframe constructions ("X isn't just Y", "more than just", "goes beyond") in public-facing text.
+- Wording, everywhere (docs, docstrings, messages, commits): say "backend keystore", never bare "backend"; say "self-testing" or "testing the tool on its own repository" for the practice of running memattest on this repo's own memory — the informal industry term for that practice is banned in all its variants; no contrastive-reframe constructions ("X isn't just Y", "more than just", "goes beyond") in public-facing text.
 - Commit messages: subject + body only, **no attribution/Co-Authored-By lines**.
 - Shell commands and commit messages must not contain the literal phrase `memattest adopt`, paths shaped like `.claude/settings*.json`, or the hook-disabling flag name — the live PreToolUse guard on this machine denies them.
 
