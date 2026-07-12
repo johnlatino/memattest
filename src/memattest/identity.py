@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 
-from .errors import KeyStoreError
+from .errors import KeyNotFoundError, KeyStoreError
 
 
 class KeyStore(ABC):
@@ -44,7 +44,7 @@ class KeyringKeyStore(KeyStore):
         except Exception as exc:
             raise KeyStoreError(f"keyring unseal failed: {exc}") from exc
         if value is None:
-            raise KeyStoreError(f"no key named {name!r} in keyring service {self.service!r}")
+            raise KeyNotFoundError(f"no key named {name!r} in keyring service {self.service!r}")
         return base64.b64decode(value)
 
 
@@ -82,7 +82,7 @@ class FileKeyStore(KeyStore):
     def unseal(self, name: str) -> bytes:
         blobs = self._load()
         if name not in blobs:
-            raise KeyStoreError(f"no key named {name!r} in {self.path}")
+            raise KeyNotFoundError(f"no key named {name!r} in {self.path}")
         try:
             raw = base64.b64decode(blobs[name])
         except binascii.Error as exc:

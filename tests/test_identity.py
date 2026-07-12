@@ -74,3 +74,45 @@ def test_keyring_keystore_smoke():
         assert ks.unseal("smoke") == b"\x02" * 32
     except KeyStoreError:
         pytest.skip("no functional OS keyring in this environment")
+
+
+# --- KeyNotFoundError: "the backend keystore answered: no such key" ---------
+# Verify (spec 2026-07-12) must distinguish a genuinely absent key
+# (evidence-grade key-missing problem) from an unreachable backend keystore
+# (operational error), so both backend keystores type their not-found case.
+
+
+def test_keynotfounderror_is_a_keystoreerror():
+    from memattest.errors import KeyNotFoundError
+    assert issubclass(KeyNotFoundError, KeyStoreError)
+
+
+def test_keyring_keystore_missing_key_raises_keynotfounderror(monkeypatch):
+    import keyring
+    from memattest.errors import KeyNotFoundError
+    monkeypatch.setattr(keyring, "get_password", lambda service, name: None)
+    with pytest.raises(KeyNotFoundError):
+        KeyringKeyStore(service="memattest-test").unseal("absent")
+
+
+def test_file_keystore_missing_file_raises_keynotfounderror(tmp_path):
+    from memattest.errors import KeyNotFoundError
+    ks = FileKeyStore(tmp_path / "no-such-file.sealed", passphrase=b"pw")
+    with pytest.raises(KeyNotFoundError):
+        ks.unseal("k1")
+
+
+def test_file_keystore_absent_name_raises_keynotfounderror(tmp_path):
+    from memattest.errors import KeyNotFoundError
+    ks = FileKeyStore(tmp_path / "key.sealed", passphrase=b"pw")
+    ks.seal("k1", b"\x01" * 32)
+    with pytest.raises(KeyNotFoundError):
+        ks.unseal("other")
+
+
+def test_file_keystore_wrong_passphrase_is_not_keynotfound(tmp_path):
+    from memattest.errors import KeyNotFoundError
+    FileKeyStore(tmp_path / "key.sealed", passphrase=b"pw").seal("k1", b"\x01" * 32)
+    with pytest.raises(KeyStoreError) as exc_info:
+        FileKeyStore(tmp_path / "key.sealed", passphrase=b"wrong").unseal("k1")
+    assert not isinstance(exc_info.value, KeyNotFoundError)
