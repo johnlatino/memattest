@@ -38,7 +38,7 @@ def load_config(state_dir: Path) -> dict | None:
         return None
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise MemAttestError(f"unreadable or invalid config {path}: {exc}") from exc
     version = data.get("config_version")
     if version != CONFIG_VERSION:

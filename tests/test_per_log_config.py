@@ -19,6 +19,12 @@ def test_unparseable_toml_is_operational_error(tmp_path):
         load_config(tmp_path)
 
 
+def test_invalid_utf8_is_operational_error(tmp_path):
+    (tmp_path / "config.toml").write_bytes(b"config_version = 1\nkeystore = \xff\xfe\n")
+    with pytest.raises(MemAttestError, match="config.toml"):
+        load_config(tmp_path)
+
+
 def test_missing_keystore_key_is_operational_error(tmp_path):
     (tmp_path / "config.toml").write_text("config_version = 1\n", encoding="utf-8")
     with pytest.raises(MemAttestError, match="backend keystore"):
