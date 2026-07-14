@@ -100,3 +100,72 @@ def test_record_inside_state_dir_raises_memattest_error(mem):
 def test_verify_before_init_raises_not_initialized(mem):
     with pytest.raises(MemAttestError, match="not initialized"):
         mem.verify()
+
+
+# --- per-log config auto-creation (spec 2026-07-13 §7) -----------------------
+# Only backend keystores that name themselves (config_name) are recorded;
+# unnamed test doubles never plant a config the CLI could not resolve.
+
+
+class NamedKeyStore(MemoryKeyStore):
+    config_name = "keyring"
+
+
+def named_mem(tmp_path):
+    d = tmp_path / "memory"
+    d.mkdir()
+    (d / "MEMORY.md").write_text("index", encoding="utf-8")
+    return MemAttest(d, keystore=NamedKeyStore())
+
+
+def test_init_writes_config_for_named_keystore(tmp_path):
+    from memattest.per_log_config import load_config
+    m = named_mem(tmp_path)
+    m.init()
+    assert load_config(m.state_dir) == {"config_version": 1, "keystore": "keyring"}
+
+
+def test_init_with_unnamed_keystore_writes_no_config(mem):
+    mem.init()
+    assert not (mem.state_dir / "config.toml").exists()
+
+
+def test_first_record_auto_creates_config(tmp_path):
+    from memattest.per_log_config import load_config
+    m = named_mem(tmp_path)
+    m.init()
+    (m.state_dir / "config.toml").unlink()  # simulate a pre-feature log
+    f = m.memory_dir / "notes.md"
+    f.write_text("x", encoding="utf-8")
+    m.record(f)
+    assert load_config(m.state_dir) == {"config_version": 1, "keystore": "keyring"}
+
+
+def test_first_adopt_auto_creates_config(tmp_path):
+    from memattest.per_log_config import load_config
+    m = named_mem(tmp_path)
+    m.init()
+    (m.state_dir / "config.toml").unlink()
+    f = m.memory_dir / "notes.md"
+    f.write_text("x", encoding="utf-8")
+    m.adopt([f], reason="test reconcile")
+    assert load_config(m.state_dir) == {"config_version": 1, "keystore": "keyring"}
+
+
+def test_append_does_not_rewrite_existing_config(tmp_path):
+    m = named_mem(tmp_path)
+    m.init()
+    (m.state_dir / "config.toml").write_text(
+        '# custom marker\nconfig_version = 1\nkeystore = "keyring"\n', encoding="utf-8")
+    f = m.memory_dir / "notes.md"
+    f.write_text("x", encoding="utf-8")
+    m.record(f)
+    assert "# custom marker" in (m.state_dir / "config.toml").read_text(encoding="utf-8")
+
+
+def test_verify_never_writes_config(tmp_path):
+    m = named_mem(tmp_path)
+    m.init()
+    (m.state_dir / "config.toml").unlink()
+    m.verify()
+    assert not (m.state_dir / "config.toml").exists()
