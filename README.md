@@ -242,10 +242,18 @@ MEMATTEST_PASSPHRASE="correct horse battery staple" \
   memattest init --memory-dir <MEMORY_DIR> --keystore file
 ```
 
-Use the same `--keystore` choice consistently for a given memory directory.
-Each backend seals the key under a name derived from the memory directory's
-resolved path, so switching backends after `init` means memattest can no
-longer unseal the original key.
+The choice is recorded in the log's `.memattest/config.toml` at `init`, and
+the config is authoritative from then on: later commands need no
+`--keystore` flag, and passing one that contradicts the config is an
+operational error rather than a lookup in the wrong backend keystore (which
+used to end in a false `key-missing` alarm). Logs initialized before this
+feature record their config automatically on their next successful append.
+Each backend keystore seals the key under a name derived from the memory
+directory's resolved path, so there is no way to move a key between backend
+keystores after `init`; the manual escape hatch, should the config ever be
+wrong, is editing `config.toml` by hand. The config file ships unsigned —
+every lie it can tell ends in a loud failure at the next session start, and
+cryptographic sealing is planned together with the watch list.
 
 Every `verify` — including the session-start hook — cross-checks
 `pubkey.ed25519` on disk against the public key re-derived from the signing

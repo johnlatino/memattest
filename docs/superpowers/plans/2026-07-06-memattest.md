@@ -2212,13 +2212,16 @@ task breakdown. Items 1–3 are v1.x-sized; the rest are v2-sized (spec §13).
    `PROBLEM`s), and `--no-key-check` is the explicit opt-out for copied-log
    audits.
 
-2. **Per-log `config.toml` in `.memattest/`** (spec §13). Record the keystore
-   backend chosen at init — verifying with the wrong `--keystore` today yields
-   a false `key-missing` tamper finding instead of a clear "this log uses the
-   file backend keystore" message. This file is also the natural home for the watch list (item 3)
-   and future provider/guard-glob config. Note the config file itself is
-   inside the trust boundary and must be covered by the same integrity story
-   it configures (hash it into the log or seal it with the key).
+2. **Per-log `config.toml` in `.memattest/`** — **done 2026-07-13**
+   (spec `docs/superpowers/specs/2026-07-13-per-log-config-design.md`,
+   plan `docs/superpowers/plans/2026-07-13-per-log-config.md`).
+   Init records the backend keystore; the config is authoritative (a
+   contradicting `--keystore` flag is an operational error) and pre-feature
+   logs auto-migrate on their next successful append. Shipped without
+   cryptographic protection — the signing-key cross-check makes every config
+   lie fail-noisy — and the sealing + reconciliation ceremony is explicitly
+   deferred to the watch list (item 3), which is where an unprotected config
+   would first enable a silent weakening.
 
 3. **Watch list: attest designated files outside the memory directory.**
    The self-testing round showed the hook configuration is part of the trust
