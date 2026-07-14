@@ -252,8 +252,12 @@ Each backend keystore seals the key under a name derived from the memory
 directory's resolved path, so there is no way to move a key between backend
 keystores after `init`; the manual escape hatch, should the config ever be
 wrong, is editing `config.toml` by hand. The config file ships unsigned —
-every lie it can tell ends in a loud failure at the next session start, and
-cryptographic sealing is planned together with the watch list.
+with one caveat, every lie it can tell ends in a loud failure at the next
+session start, and cryptographic sealing is planned together with the watch
+list. The caveat: a persistently exported `MEMATTEST_PASSPHRASE` weakens
+keyring-anchored logs too, because a memory-directory writer who knows it
+can redirect the config to a planted file backend keystore; export the
+passphrase only when a command needs it.
 
 Every `verify` — including the session-start hook — cross-checks
 `pubkey.ed25519` on disk against the public key re-derived from the signing

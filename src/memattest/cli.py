@@ -41,7 +41,8 @@ def _make_ma(args) -> MemAttest:
     from .per_log_config import load_config
 
     memory_dir = Path(args.memory_dir)
-    config = load_config(memory_dir / STATE_DIR_NAME)
+    state_dir = memory_dir / STATE_DIR_NAME
+    config = load_config(state_dir)
     if config is not None:
         recorded = config["keystore"]
         if args.keystore is not None and args.keystore != recorded:
@@ -60,7 +61,7 @@ def _make_ma(args) -> MemAttest:
             raise MemAttestError("keystore 'file' requires MEMATTEST_PASSPHRASE to be set")
         # Under --no-key-check the backend keystore is never consulted, so a
         # missing passphrase must not block a copied-log audit.
-        ks = FileKeyStore(memory_dir / STATE_DIR_NAME / "key.sealed",
+        ks = FileKeyStore(state_dir / "key.sealed",
                           (passphrase or "").encode("utf-8"))
     else:
         ks = KeyringKeyStore()

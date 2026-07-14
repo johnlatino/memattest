@@ -103,7 +103,7 @@ history.** The signing-key cross-check anchors trust in the backend
 keystore's *contents*, which a memory-directory attacker cannot forge: they
 cannot write the user's OS keyring at all, and a planted `key.sealed`
 cannot decrypt under a passphrase they do not know (`InvalidTag`).
-Exhaustively, for an attacker who can rewrite `config.toml`:
+For an attacker who can rewrite `config.toml` and lacks the passphrase:
 
 - Redirect `keyring` → `file`: verify fails on the missing
   `MEMATTEST_PASSPHRASE` or on `InvalidTag` — operational error, loud at
@@ -115,8 +115,21 @@ Exhaustively, for an attacker who can rewrite `config.toml`:
   false-alarms loudly.
 - Corrupt the config: exit 2, loud at session start.
 
-Every outcome is fail-noisy; none is fail-silent. Config tampering can harass
-(false alarms, blocked verifies) but cannot certify forged history.
+**Precondition on the redirect claims:** the `keyring` → `file` bullet is
+fail-noisy only while the file-backend passphrase is unavailable in the
+verifying environment or unknown to the attacker. A user who persistently
+exports `MEMATTEST_PASSPHRASE` (for another log that uses the file backend
+keystore) extends the blast radius of a leaked passphrase to their keyring
+logs: an attacker who can write the memory directory and knows that
+passphrase can plant a `key.sealed` under it, redirect the config, swap the
+pubkey, and verify cleanly over forged history. Sealing the config (watch
+list, item 3) restores keyring anchoring against this; until then, treat a
+persistently exported passphrase as part of every log's trust surface, not
+only the file-backend log it was set for.
+
+Under that precondition, every outcome is fail-noisy; none is fail-silent.
+Config tampering can harass (false alarms, blocked verifies) but cannot
+certify forged history.
 
 **Deferral, stated precisely:** this argument holds only while the config's
 sole content is routing that the cross-check double-checks. The watch list
@@ -144,7 +157,9 @@ as `pubkey.ed25519`, covered by the same session-start loudness argument.
   "keyring"`, `FileKeyStore.config_name = "file"`. Auto-create fires only
   when `config_name` is set, so in-memory test doubles (left at `None`)
   never write a config claiming a backend keystore the CLI cannot resolve,
-  and third-party `KeyStore` implementers opt in by naming themselves.
+  and third-party `KeyStore` implementers opt in by naming themselves (the
+  name must also be added to `KNOWN_KEYSTORES`, or `write_config` refuses to
+  record it).
 
 ## 8. Documentation updates
 

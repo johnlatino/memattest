@@ -50,6 +50,8 @@ def load_config(state_dir: Path) -> dict | None:
     if unknown:
         raise MemAttestError(f"config {path} has unknown keys: {sorted(unknown)}")
     keystore = data.get("keystore")
+    if keystore is None:
+        raise MemAttestError(f"config {path} is missing the 'keystore' key")
     if keystore not in KNOWN_KEYSTORES:
         raise MemAttestError(
             f"config {path} names unknown backend keystore {keystore!r}; "
@@ -59,6 +61,11 @@ def load_config(state_dir: Path) -> dict | None:
 
 
 def write_config(state_dir: Path, keystore: str) -> None:
+    if keystore not in KNOWN_KEYSTORES:
+        raise MemAttestError(
+            f"cannot record unknown backend keystore {keystore!r} in the "
+            f"per-log config; known names: {list(KNOWN_KEYSTORES)}"
+        )
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / CONFIG_NAME).write_text(

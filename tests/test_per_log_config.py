@@ -27,7 +27,7 @@ def test_invalid_utf8_is_operational_error(tmp_path):
 
 def test_missing_keystore_key_is_operational_error(tmp_path):
     (tmp_path / "config.toml").write_text("config_version = 1\n", encoding="utf-8")
-    with pytest.raises(MemAttestError, match="backend keystore"):
+    with pytest.raises(MemAttestError, match="missing the 'keystore' key"):
         load_config(tmp_path)
 
 
@@ -50,3 +50,9 @@ def test_unknown_config_version_is_operational_error(tmp_path):
         'config_version = 99\nkeystore = "keyring"\n', encoding="utf-8")
     with pytest.raises(MemAttestError, match="newer memattest"):
         load_config(tmp_path)
+
+
+def test_write_config_rejects_unknown_keystore_name(tmp_path):
+    with pytest.raises(MemAttestError, match="unknown backend keystore"):
+        write_config(tmp_path, "tpm")
+    assert not (tmp_path / "config.toml").exists()
