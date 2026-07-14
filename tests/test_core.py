@@ -169,3 +169,14 @@ def test_verify_never_writes_config(tmp_path):
     (m.state_dir / "config.toml").unlink()
     m.verify()
     assert not (m.state_dir / "config.toml").exists()
+
+
+def test_failed_record_writes_no_config(tmp_path):
+    m = named_mem(tmp_path)
+    m.init()
+    (m.state_dir / "config.toml").unlink()  # pre-feature log
+    outsider = tmp_path / "outside.md"
+    outsider.write_text("x", encoding="utf-8")
+    with pytest.raises(MemAttestError, match="not under the guarded memory directory"):
+        m.record(outsider)
+    assert not (m.state_dir / "config.toml").exists()

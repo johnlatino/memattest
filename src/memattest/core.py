@@ -58,8 +58,9 @@ class MemAttest:
 
     def _write_config_if_named(self) -> None:
         # Called only after the backend keystore has demonstrably held the
-        # signing key (init just sealed it; record/adopt just unsealed it),
-        # so the recorded name is proven, not guessed (spec 2026-07-13 §7).
+        # signing key (init just sealed it; the record/adopt that just
+        # succeeded signed with it), so the recorded name is proven, not
+        # guessed, and a failed append leaves no config (spec 2026-07-13 §7).
         if self.keystore.config_name is None:
             return
         if per_log_config.load_config(self.state_dir) is None:
@@ -97,18 +98,18 @@ class MemAttest:
         if not self.initialized:
             raise MemAttestError("not initialized; run init first")
         identity = self._identity()
-        self._write_config_if_named()
         entry = self._append(identity, op, path, reason)
         self._seal_current_tree(identity)
+        self._write_config_if_named()
         return entry
 
     def adopt(self, paths: list[Path], reason: str) -> list[dict]:
         if not self.initialized:
             raise MemAttestError("not initialized; run init first")
         identity = self._identity()
-        self._write_config_if_named()
         entries = [self._append(identity, "adopt", p, reason) for p in paths]
         self._seal_current_tree(identity)
+        self._write_config_if_named()
         return entries
 
     def derived_state(self) -> dict[str, str]:
