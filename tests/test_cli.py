@@ -448,3 +448,28 @@ def test_corrupted_config_surfaces_in_session_start(memdir, capsys):
     out = json.loads(capsys.readouterr().out)
     assert "verification could not run" in out["systemMessage"]
     assert "config" in out["systemMessage"]
+
+
+# --- record success line (CLI polish round, spec 2026-07-15) -----------------
+# The hook path (hook post-tool-use) calls core's ma.record() directly and
+# stays silent; only the CLI handler prints.
+
+
+def test_record_prints_success_line(memdir, capsys):
+    run("init", *base(memdir))
+    f = memdir / "notes.md"
+    f.write_text("v1", encoding="utf-8")
+    capsys.readouterr()
+    assert run("record", *base(memdir), "--path", str(f)) == 0
+    assert capsys.readouterr().out.strip() == "recorded write of notes.md at entry 1"
+
+
+def test_record_delete_prints_success_line(memdir, capsys):
+    run("init", *base(memdir))
+    f = memdir / "notes.md"
+    f.write_text("v1", encoding="utf-8")
+    run("record", *base(memdir), "--path", str(f))
+    f.unlink()
+    capsys.readouterr()
+    assert run("record", *base(memdir), "--path", str(f), "--op", "delete") == 0
+    assert capsys.readouterr().out.strip() == "recorded delete of notes.md at entry 2"

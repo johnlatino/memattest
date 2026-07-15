@@ -106,7 +106,8 @@ def cmd_record(args) -> int:
     if args.memory_dir is None:
         args.memory_dir = _derive_memory_dir([Path(args.path)])
     ma = _make_ma(args)
-    ma.record(Path(args.path), op=args.op)
+    entry = ma.record(Path(args.path), op=args.op)
+    print(f"recorded {entry['op']} of {entry['path']} at entry {entry['index']}")
     return 0
 
 
