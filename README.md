@@ -188,7 +188,7 @@ a divergence. Reconcile it with `adopt`, which appends a new signed entry
 recording the file's current hash together with a required justification:
 
 ```bash
-memattest adopt <MEMORY_DIR>/notes.md --reason "manual correction of stale project name"
+memattest adopt --path <MEMORY_DIR>/notes.md --reason "manual correction of stale project name"
 ```
 
 `adopt` and `record` locate the guarded directory from the file path itself:
@@ -198,7 +198,7 @@ the memory directory, or when the containing folder is not the guarded root,
 pass `--memory-dir` to explicitly specify the memory directory. Example:
 
 ```bash
-memattest adopt <MEMORY_DIR>/subfolder/notes.md --memory-dir <MEMORY_DIR> --reason "manual correction of stale project name"
+memattest adopt --path <MEMORY_DIR>/subfolder/notes.md --memory-dir <MEMORY_DIR> --reason "manual correction of stale project name"
 ```
 
 The confirmation prompt always names the directory being adopted
@@ -275,6 +275,37 @@ that travels with the log. After restoring a backup onto a new machine,
 verify with `--no-key-check` first and re-init only once the report is clean
 and you have reviewed the memory contents — re-init adopts whatever is on
 disk.
+
+## Auditing with proofs
+
+`memattest prove` emits the RFC 6962 proofs that let someone else check
+your log without trusting your machine:
+
+- `--index N` prints the inclusion proof for entry N — the audit path, a
+  JSON array of hex-encoded hashes.
+- `--old-size K` prints the consistency proof between the K-entry tree
+  and the current tree — evidence that the log grew append-only, with
+  nothing rewritten or reordered.
+
+You never need `prove` for your own log: `verify` already recomputes the
+full tree and checks every entry directly. `prove` exists for *other*
+parties — an auditor holding a snapshot you handed them, or, once
+external root anchoring lands (planned), anyone checking that
+today's log is an append-only extension of a previously published tree
+head, which is what makes rollback detectable.
+
+A small example. With three entries in the log:
+
+```bash
+$ memattest prove --memory-dir <MEMORY_DIR> --index 1
+["a7f3c2…", "5d90ee…"]
+```
+
+(hashes shortened here). An auditor holding entry 1's bytes, this audit
+path, and a signed tree head recomputes the root — hash the entry, then
+combine it pairwise with each hash in the path — and compares the result
+against the root in the tree head. A match proves the entry is in the
+tree that head commits to; they never need the rest of the log.
 
 ## Hardening your installation
 
