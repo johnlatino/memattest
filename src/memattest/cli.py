@@ -36,6 +36,8 @@ def _derive_memory_dir(paths: list[Path]) -> Path:
 
 
 def _make_ma(args) -> MemAttest:
+    # Lazily import the core components because the 'hook pre-tool-use' runs on every shell command.
+    # Don't want to slow down command execution when it's not needed.    
     from .core import STATE_DIR_NAME, MemAttest
     from .identity import FileKeyStore, KeyringKeyStore
     from .per_log_config import load_config
