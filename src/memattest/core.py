@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import merkle, provenance
+from . import merkle, per_log_config, provenance
 from .entry import SCHEME, build_entry, file_content_hash
 from .errors import KeyNotFoundError, KeyStoreError, MemAttestError
 from .identity import Identity, KeyringKeyStore, KeyStore
@@ -56,6 +56,16 @@ class MemAttest:
     def _identity(self) -> Identity:
         return Identity.load(self.keystore, self.key_name)
 
+    def _write_config_if_named(self) -> None:
+        # Called only after the backend keystore has demonstrably held the
+        # signing key (init just sealed it; the record/adopt that just
+        # succeeded signed with it), so the recorded name is proven, not
+        # guessed, and a failed append leaves no config (spec 2026-07-13 §7).
+        if self.keystore.config_name is None:
+            return
+        if per_log_config.load_config(self.state_dir) is None:
+            per_log_config.write_config(self.state_dir, self.keystore.config_name)
+
     def _seal_current_tree(self, identity: Identity) -> None:
         leaves = self.store.leaf_bytes()
         self.sth_chain.append(build_sth(len(leaves), merkle.root_hash(leaves), identity))
@@ -79,6 +89,7 @@ class MemAttest:
         identity = Identity.generate(self.keystore, self.key_name)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.pubkey_path.write_text(identity.public_key_bytes.hex(), encoding="ascii")
+        self._write_config_if_named()
         entries = [self._append(identity, "adopt", p, reason) for p in self.guarded_files()]
         self._seal_current_tree(identity)
         return entries
@@ -89,6 +100,7 @@ class MemAttest:
         identity = self._identity()
         entry = self._append(identity, op, path, reason)
         self._seal_current_tree(identity)
+        self._write_config_if_named()
         return entry
 
     def adopt(self, paths: list[Path], reason: str) -> list[dict]:
@@ -97,6 +109,7 @@ class MemAttest:
         identity = self._identity()
         entries = [self._append(identity, "adopt", p, reason) for p in paths]
         self._seal_current_tree(identity)
+        self._write_config_if_named()
         return entries
 
     def derived_state(self) -> dict[str, str]:

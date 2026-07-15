@@ -17,6 +17,11 @@ from .errors import KeyNotFoundError, KeyStoreError
 class KeyStore(ABC):
     """seal/unseal named secrets. Backends decide where and how they are protected."""
 
+    # Canonical name recorded in the per-log config (spec 2026-07-13 §7).
+    # None (e.g. in-memory test doubles) opts out of config auto-creation, so
+    # nothing ever records a backend keystore the CLI cannot resolve.
+    config_name: str | None = None
+
     @abstractmethod
     def seal(self, name: str, secret: bytes) -> None: ...
 
@@ -26,6 +31,8 @@ class KeyStore(ABC):
 
 class KeyringKeyStore(KeyStore):
     """OS keystore via `keyring`: DPAPI (Windows), Secret Service (Linux), Keychain (macOS)."""
+
+    config_name = "keyring"
 
     def __init__(self, service: str = "memattest"):
         self.service = service
@@ -53,6 +60,8 @@ class KeyringKeyStore(KeyStore):
 
 class FileKeyStore(KeyStore):
     """Encrypted-file fallback for headless hosts: scrypt KDF + AES-256-GCM, 0600 perms."""
+
+    config_name = "file"
 
     def __init__(self, path: Path, passphrase: bytes):
         self.path = Path(path)

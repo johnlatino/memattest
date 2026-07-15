@@ -242,16 +242,28 @@ MEMATTEST_PASSPHRASE="correct horse battery staple" \
   memattest init --memory-dir <MEMORY_DIR> --keystore file
 ```
 
-Use the same `--keystore` choice consistently for a given memory directory.
-Each backend seals the key under a name derived from the memory directory's
-resolved path, so switching backends after `init` means memattest can no
-longer unseal the original key.
+The choice is recorded in the log's `.memattest/config.toml` at `init`, and
+the config is authoritative from then on: later commands need no
+`--keystore` flag, and passing one that contradicts the config is an
+operational error rather than a lookup in the wrong backend keystore (which
+used to end in a false `key-missing` alarm). Logs initialized before this
+feature record their config automatically on their next successful append.
+Each backend keystore seals the key under a name derived from the memory
+directory's resolved path, so there is no way to move a key between backend
+keystores after `init`. If you need to work around this (e.g., if the config is wrong), 
+edit `config.toml` by hand. The config file ships unsigned, so it is possible 
+to add invalid or incorrect entries. However, there is sufficient validation code 
+to cover every invalid condition, which will produce error messages to the console (and stderr) 
+at the next session start. Cryptographic sealing is planned together with the watch
+list for a future update. Be careful about not exposing `MEMATTEST_PASSPHRASE`- 
+doing so can weaken keyring-anchored logs because a memory-directory writer who knows it
+can redirect the config to a planted file backend keystore.
 
-Every `verify` — including the session-start hook — cross-checks
+Every `verify` (including the session-start hook) cross-checks
 `pubkey.ed25519` on disk against the public key re-derived from the signing
 seed in the backend keystore. To audit a *copied* log on a machine that never
-had the key — a restored backup before re-initializing, incident response on
-a clean machine, a third-party or CI audit — pass `--no-key-check`:
+had the key- a restored backup before re-initializing, incident response on
+a clean machine, a third-party or CI audit— pass `--no-key-check`:
 
 ```bash
 memattest verify --memory-dir <COPY_OF_MEMORY_DIR> --no-key-check
