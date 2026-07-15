@@ -79,7 +79,8 @@ def _report_lines(report: VerifyReport, entry_count: int) -> list[str]:
     ]
     lines.append(
         "Remediation: restore the affected files and re-run verify, or run "
-        "'memattest adopt <paths> --reason ...' to accept the current state."
+        "'memattest adopt --path <file> --reason ...' (repeat --path per "
+        "file) to accept the current state."
     )
     return lines
 
@@ -279,7 +280,8 @@ class _HintingParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         if message.startswith("unrecognized arguments:"):
             message += ("\nhint: the memory directory is passed as "
-                        "'--memory-dir <path>', not as a positional argument")
+                        "'--memory-dir <path>' and files as '--path <file>', "
+                        "not as positional arguments")
         super().error(message)
 
 
@@ -308,7 +310,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("adopt", help="bless out-of-band changes (interactive only)")
     _add_common(p, memory_dir_default=None)  # derived from the paths' folder when omitted
-    p.add_argument("paths", nargs="+")
+    p.add_argument("--path", action="append", required=True, dest="paths",
+                   help="file to adopt; repeat the flag for multiple files")
     p.add_argument("--reason", required=True)
     p.set_defaults(fn=cmd_adopt)
 
