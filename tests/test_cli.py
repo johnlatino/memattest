@@ -396,3 +396,55 @@ def test_hook_session_start_invalid_seed_reports_instead_of_failing(memdir, caps
     context = out["hookSpecificOutput"]["additionalContext"]
     assert "verification could not run" in context
     assert "verification could not run" in out["systemMessage"]
+
+
+# --- per-log config resolution (spec 2026-07-13 §4) --------------------------
+
+
+def test_init_writes_config_and_flag_becomes_unnecessary(memdir, capsys):
+    run("init", *base(memdir))
+    cfg = (memdir / ".memattest" / "config.toml").read_text(encoding="utf-8")
+    assert 'keystore = "file"' in cfg
+    capsys.readouterr()
+    # No --keystore flag: the config decides (passphrase still via env).
+    assert run("verify", "--memory-dir", str(memdir)) == 0
+    assert "OK" in capsys.readouterr().out
+
+
+def test_contradicting_keystore_flag_is_operational_error(memdir, capsys):
+    run("init", *base(memdir))
+    capsys.readouterr()
+    rc = run("verify", "--memory-dir", str(memdir), "--keystore", "keyring")
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "records backend keystore 'file'" in captured.err
+    # Regression lock: the wrong flag used to reach the wrong backend
+    # keystore and report a false key-missing tamper finding.
+    assert "key-missing" not in captured.out
+
+
+def test_config_absent_explicit_flag_still_works(memdir, capsys):
+    run("init", *base(memdir))
+    (memdir / ".memattest" / "config.toml").unlink()  # pre-feature log
+    capsys.readouterr()
+    assert run("verify", *base(memdir)) == 0  # legacy behavior preserved
+
+
+def test_record_auto_creates_config_for_pre_feature_log(memdir, capsys):
+    run("init", *base(memdir))
+    (memdir / ".memattest" / "config.toml").unlink()
+    f = memdir / "notes.md"
+    f.write_text("v1", encoding="utf-8")
+    assert run("record", *base(memdir), "--path", str(f)) == 0
+    cfg = (memdir / ".memattest" / "config.toml").read_text(encoding="utf-8")
+    assert 'keystore = "file"' in cfg
+
+
+def test_corrupted_config_surfaces_in_session_start(memdir, capsys):
+    run("init", *base(memdir))
+    (memdir / ".memattest" / "config.toml").write_text("not = [valid", encoding="utf-8")
+    capsys.readouterr()
+    assert run("hook", "session-start", *base(memdir)) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "verification could not run" in out["systemMessage"]
+    assert "config" in out["systemMessage"]

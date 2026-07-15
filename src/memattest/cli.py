@@ -36,17 +36,34 @@ def _derive_memory_dir(paths: list[Path]) -> Path:
 
 
 def _make_ma(args) -> MemAttest:
-    from .core import MemAttest
+    # Lazily import the core components because the 'hook pre-tool-use' runs on every shell command.
+    # Don't want to slow down command execution when it's not needed.    
+    from .core import STATE_DIR_NAME, MemAttest
     from .identity import FileKeyStore, KeyringKeyStore
+    from .per_log_config import load_config
 
     memory_dir = Path(args.memory_dir)
-    if args.keystore == "file":
+    state_dir = memory_dir / STATE_DIR_NAME
+    config = load_config(state_dir)
+    if config is not None:
+        recorded = config["keystore"]
+        if args.keystore is not None and args.keystore != recorded:
+            raise MemAttestError(
+                f"this log's config records backend keystore {recorded!r}; "
+                "omit --keystore, or edit .memattest/config.toml if the "
+                "config is wrong"
+            )
+        backend = recorded
+    else:
+        # Pre-config log (or init): pre-feature behavior, keyring by default.
+        backend = args.keystore or "keyring"
+    if backend == "file":
         passphrase = os.environ.get("MEMATTEST_PASSPHRASE")
         if not passphrase and not getattr(args, "no_key_check", False):
             raise MemAttestError("keystore 'file' requires MEMATTEST_PASSPHRASE to be set")
         # Under --no-key-check the backend keystore is never consulted, so a
         # missing passphrase must not block a copied-log audit.
-        ks = FileKeyStore(memory_dir / ".memattest" / "key.sealed",
+        ks = FileKeyStore(state_dir / "key.sealed",
                           (passphrase or "").encode("utf-8"))
     else:
         ks = KeyringKeyStore()
@@ -251,7 +268,10 @@ def cmd_hook_pre_tool_use(args) -> int:
 
 def _add_common(p: argparse.ArgumentParser, *, memory_dir_default: str | None = ".") -> None:
     p.add_argument("--memory-dir", default=memory_dir_default)
-    p.add_argument("--keystore", choices=["keyring", "file"], default="keyring")
+    p.add_argument("--keystore", choices=["keyring", "file"], default=None,
+                   help="backend keystore; recorded in the log's config.toml "
+                        "at init, so it is only needed before init or for "
+                        "pre-config logs")
 
 
 class _HintingParser(argparse.ArgumentParser):
