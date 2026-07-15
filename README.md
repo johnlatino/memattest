@@ -290,7 +290,7 @@ your log without trusting your machine:
 You never need `prove` for your own log: `verify` already recomputes the
 full tree and checks every entry directly. `prove` exists for *other*
 parties — an auditor holding a snapshot you handed them, or, once
-external root anchoring lands (see the roadmap), anyone checking that
+external root anchoring lands (planned), anyone checking that
 today's log is an append-only extension of a previously published tree
 head, which is what makes rollback detectable.
 
