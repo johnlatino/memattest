@@ -143,3 +143,122 @@ def test_write_settings_roundtrip_creates_parent(tmp_path):
     write_settings(f, {"hooks": {}})
     assert json.loads(f.read_text(encoding="utf-8")) == {"hooks": {}}
     assert f.read_text(encoding="utf-8").endswith("\n")
+
+
+# --- ceremony (CLI-level, adopt-test style) -----------------------------------
+
+import io
+
+from memattest import cli
+
+
+def _tty_stdin(monkeypatch, answers):
+    fake = io.StringIO()
+    fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    it = iter(answers)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
+
+
+def _project_and_memory(tmp_path):
+    project = tmp_path / "proj"
+    project.mkdir()
+    mem = tmp_path / "memory"
+    mem.mkdir()
+    (mem / "MEMORY.md").write_text("index", encoding="utf-8")
+    return project, mem
+
+
+def test_install_refuses_without_tty(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    fake = io.StringIO()
+    fake.isatty = lambda: False
+    monkeypatch.setattr("sys.stdin", fake)
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    assert rc == 2
+    assert "interactive terminal" in capsys.readouterr().err
+    assert not (project / ".claude").exists()
+
+
+def test_install_eof_at_choice_aborts_cleanly(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    fake = io.StringIO()
+    fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)  # input() raises EOFError
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    assert rc == 2
+    assert "aborted" in capsys.readouterr().err
+    assert not (project / ".claude").exists()
+
+
+def test_install_full_drive_through(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    _tty_stdin(monkeypatch, ["1", "install"])
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "initialized; adopted 1 pre-existing file(s)" in out
+    assert "OK 1 entries verified" in out
+    assert "next Claude Code session" in out
+    settings = json.loads(
+        (project / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert "//" not in settings
+    cmds = [h["command"]
+            for groups in settings["hooks"].values()
+            for g in groups for h in g["hooks"]]
+    assert len(cmds) == 3
+    assert all(mem.resolve().as_posix() in c for c in cmds)
+    assert any("session-start" in c for c in cmds)
+    assert any("adopt" in r for r in settings["permissions"]["deny"])
+
+
+def test_install_local_choice_writes_local_file(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    _tty_stdin(monkeypatch, ["2", "install"])
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    assert rc == 0
+    assert (project / ".claude" / "settings.local.json").exists()
+    assert not (project / ".claude" / "settings.json").exists()
+
+
+def test_install_rerun_is_idempotent(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    _tty_stdin(monkeypatch, ["1", "install"])
+    assert cli.main(["install", "--project", str(project),
+                     "--memory-dir", str(mem), "--keystore", "file"]) == 0
+    first = (project / ".claude" / "settings.json").read_text(encoding="utf-8")
+    _tty_stdin(monkeypatch, ["1", "install"])
+    capsys.readouterr()
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "already initialized" in out
+    assert (project / ".claude" / "settings.json").read_text(encoding="utf-8") == first
+
+
+def test_install_derived_memory_dir_missing_is_operational_error(tmp_path, monkeypatch, capsys):
+    project = tmp_path / "proj"
+    project.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "fakehome"))
+    fake = io.StringIO()
+    fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+
+    def fail_if_prompted(prompt=""):
+        raise AssertionError("no prompt may be reached when derivation fails")
+
+    monkeypatch.setattr("builtins.input", fail_if_prompted)
+    rc = cli.main(["install", "--project", str(project)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--memory-dir" in err and "does not exist" in err

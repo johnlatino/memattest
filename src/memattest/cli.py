@@ -168,6 +168,11 @@ def cmd_prove(args) -> int:
     return 0
 
 
+def cmd_install(args) -> int:
+    from .integrations.claude_code.install import run_install
+    return run_install(args, _make_ma, _print_report)
+
+
 def _read_hook_payload() -> dict:
     try:
         payload = json.load(sys.stdin)
@@ -324,6 +329,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--index", type=int)
     p.add_argument("--old-size", type=int)
     p.set_defaults(fn=cmd_prove)
+
+    p = sub.add_parser("install",
+                       help="wire the Claude Code hooks for a project (interactive only)")
+    p.add_argument("--project", default=".",
+                   help="project root whose .claude settings get wired "
+                            "(default: current directory)")
+    p.add_argument("--memory-dir",
+                   help="memory directory; derived from the project path when omitted")
+    p.add_argument("--keystore", choices=["keyring", "file"], default=None,
+                   help="backend keystore used if init runs; recorded in the "
+                            "log's config.toml")
+    p.set_defaults(fn=cmd_install)
 
     p = sub.add_parser("hook", help="harness hook entry points")
     hook_sub = p.add_subparsers(dest="hook_command", required=True)

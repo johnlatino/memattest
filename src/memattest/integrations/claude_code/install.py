@@ -111,3 +111,84 @@ def read_settings(path: Path) -> dict:
 def write_settings(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def run_install(args, make_ma, print_report) -> int:
+    """The interactive ceremony. make_ma and print_report are injected from
+    cli.py so this module never imports the CLI (or anything heavy)."""
+    if not sys.stdin.isatty():
+        print("error: install requires an interactive terminal", file=sys.stderr)
+        return 2
+
+    project = Path(args.project).resolve()
+    bin_path = find_memattest_bin()
+
+    if args.memory_dir is not None:
+        memory_dir = Path(args.memory_dir).resolve()
+        derivation = "given"
+    else:
+        memory_dir = derive_memory_dir(project)
+        derivation = "derived from the project path"
+        if not memory_dir.is_dir():
+            raise MemAttestError(
+                f"derived memory directory {memory_dir} does not exist; pass "
+                "--memory-dir explicitly, or run one Claude Code session in "
+                "the project first so the harness creates it"
+            )
+
+    args.memory_dir = str(memory_dir)
+    ma = make_ma(args)
+    init_needed = not ma.initialized
+
+    print("Write the memattest hooks to which settings file?")
+    print("  1. shared  .claude/settings.json   (recommended)")
+    print("  2. local   .claude/settings.local.json")
+    try:
+        choice = input("Choose 1 or 2 [1]: ").strip() or "1"
+    except (EOFError, KeyboardInterrupt):
+        choice = ""
+    if choice not in ("1", "2"):
+        print("aborted", file=sys.stderr)
+        return 2
+    name = "settings.json" if choice == "1" else "settings.local.json"
+    target = project / ".claude" / name
+
+    template = load_filled_template(bin_path, memory_dir)
+    existing = read_settings(target)
+    merged, actions = plan_merge(existing, template)
+
+    print("\nmemattest install plan:")
+    print(f"  project:     {project.as_posix()}")
+    print(f"  memory dir:  {memory_dir.as_posix()} ({derivation})")
+    print(f"  memattest:   {bin_path.as_posix()}")
+    print(f"  settings:    {target.as_posix()}")
+    print(f"  init:        {'will run first (not yet initialized)' if init_needed else 'already initialized, skipped'}")
+    for item, action in actions.items():
+        print(f"  {item}: {action}")
+    try:
+        confirmed = input("Type 'install' to confirm: ").strip() == "install"
+    except (EOFError, KeyboardInterrupt):
+        confirmed = False
+    if not confirmed:
+        print("aborted", file=sys.stderr)
+        return 2
+
+    if init_needed:
+        entries = ma.init()
+        print(f"initialized; adopted {len(entries)} pre-existing file(s)")
+    try:
+        write_settings(target, merged)
+    except OSError as exc:
+        raise MemAttestError(
+            f"cannot write {target}: {exc}; the memory directory is "
+            "initialized, so re-running install completes the wiring"
+        ) from exc
+    print(f"wrote hooks and deny rules to {target.as_posix()}")
+
+    report = ma.verify()
+    print_report(report, ma.store.count())
+    if not report.ok:
+        return report.exit_code
+    print("hooks take effect at the next Claude Code session "
+          "(Claude Code snapshots hook configuration at session start)")
+    return 0
