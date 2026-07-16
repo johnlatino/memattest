@@ -118,7 +118,28 @@ absolute path:
 python -c "import keyring; keyring.delete_password('memattest', r'C:\full\resolved\path\to\MEMORY_DIR')"
 ```
 
-To wire memattest into Claude Code, copy the hooks and permission rules from
+To wire memattest into Claude Code, run the installer from your project
+directory and follow its prompts:
+
+```bash
+cd <YOUR_PROJECT>
+memattest install
+```
+
+One interactive run performs the whole onboarding: it locates the
+project's Claude Code memory directory (shown in the printed plan for you
+to confirm; pass `--memory-dir` for custom layouts), runs `init` if the
+directory isn't initialized yet, merges the three hooks and the permission
+deny rules into the settings file you choose (shared is recommended;
+existing unrelated entries are preserved, and re-running updates the
+memattest entries in place), and finishes with a `verify`. Like `adopt`,
+it only runs from an interactive terminal, prints its full plan, and asks
+for typed confirmation before writing anything — and the `PreToolUse`
+guard denies agent-run `memattest install` invocations, since the command
+rewrites the same trust surface the guard protects.
+
+Prefer to wire things by hand, or using another harness? Copy the hooks
+and permission rules from
 [`src/memattest/integrations/claude_code/settings-snippet.json`](src/memattest/integrations/claude_code/settings-snippet.json)
 into your project's `.claude/settings.json`, substituting two placeholders:
 
@@ -144,10 +165,12 @@ The template configures three hooks and two permission rules:
   `memattest hook post-tool-use` to append a log entry after every memory
   write.
 - A `PreToolUse` hook (matching `Bash|PowerShell|Write|Edit`) runs
-  `memattest hook pre-tool-use`, which denies two kinds of proposed tool
+  `memattest hook pre-tool-use`, which denies three kinds of proposed tool
   call. First, any command that invokes `memattest adopt`, including quoted
   or path-prefixed spellings such as `& "C:/.../memattest" adopt` that
-  permission glob rules cannot match. Second, any agent edit of the trust
+  permission glob rules cannot match. Second, any command that invokes
+  `memattest install` — the installer rewrites the hook configuration, so
+  only a human at a terminal may run it. Third, any agent edit of the trust
   surface itself: `Write`/`Edit` calls targeting a Claude Code settings
   file (`.claude/settings.json`, `.claude/settings.local.json`, or the
   user-level one), and shell commands that reference those files or the
@@ -156,7 +179,7 @@ The template configures three hooks and two permission rules:
   editor are unaffected.
 
   [!IMPORTANT]
-  both matches are deliberately broad (fail-closed), so a command that merely 
+  all three matches are deliberately broad (fail-closed), so a command that merely 
   *mentions* the phrases, such as a commit message, is denied too.
   
   [!IMPORTANT]
@@ -165,9 +188,9 @@ The template configures three hooks and two permission rules:
   provenance-stamped `adopt` entry is what keeps that path from being
   silent (see [Security limitations](#security-limitations)).
 
-- Permission `deny` rules (`Bash(*memattest adopt*)` and its `PowerShell`
-  twin) remain as a second layer, but in my testing the `PreToolUse` hook
-  is the layer that actually catches real invocations.
+- Permission `deny` rules (`Bash(*memattest adopt*)`, `Bash(*memattest install*)`,
+  and their `PowerShell` twins) remain as a second layer, but in my testing
+  the `PreToolUse` hook is the layer that actually catches real invocations.
 
 Claude Code snapshots hook configuration at session start, so the hooks take
 effect in the **next** session, not the one where you edit the settings.
