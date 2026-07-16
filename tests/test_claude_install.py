@@ -138,6 +138,20 @@ def test_read_settings_non_object_is_operational_error(tmp_path):
         read_settings(f)
 
 
+@pytest.mark.parametrize("bad", [
+    {"hooks": []},
+    {"hooks": "x"},
+    {"hooks": {"SessionStart": "x"}},
+    {"hooks": {"SessionStart": ["x"]}},
+    {"hooks": {"SessionStart": [{"hooks": "x"}]}},
+    {"permissions": []},
+    {"permissions": {"deny": "x"}},
+])
+def test_plan_merge_rejects_malformed_shapes(bad):
+    with pytest.raises(MemAttestError, match="unexpected shape"):
+        plan_merge(bad, _template())
+
+
 def test_write_settings_roundtrip_creates_parent(tmp_path):
     f = tmp_path / ".claude" / "settings.json"
     write_settings(f, {"hooks": {}})
@@ -244,6 +258,29 @@ def test_install_rerun_is_idempotent(tmp_path, monkeypatch, capsys):
     assert rc == 0
     assert "already initialized" in out
     assert (project / ".claude" / "settings.json").read_text(encoding="utf-8") == first
+
+
+def test_install_nonexistent_project_is_operational_error(tmp_path, monkeypatch, capsys):
+    fake = io.StringIO()
+    fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    rc = cli.main(["install", "--project", str(tmp_path / "no-such-dir")])
+    assert rc == 2
+    assert "does not exist" in capsys.readouterr().err
+
+
+def test_install_plan_flags_absent_given_memory_dir(tmp_path, monkeypatch, capsys):
+    project = tmp_path / "proj"
+    project.mkdir()
+    absent = tmp_path / "not-yet"
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    _tty_stdin(monkeypatch, ["1", "install"])
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(absent), "--keystore", "file"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "does not exist yet; init will create it" in out
+    assert "initialized; adopted 0 pre-existing file(s)" in out
 
 
 def test_install_derived_memory_dir_missing_is_operational_error(tmp_path, monkeypatch, capsys):

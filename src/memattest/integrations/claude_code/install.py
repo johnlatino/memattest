@@ -62,6 +62,43 @@ def _is_memattest_hook(hook: dict) -> bool:
     return "memattest" in command and " hook " in command
 
 
+def _shape_error(where: str) -> MemAttestError:
+    return MemAttestError(
+        f"settings content has an unexpected shape at {where!r}; "
+        "fix or remove the malformed entry by hand — the installer "
+        "never rewrites content it cannot read"
+    )
+
+
+def _check_shape(existing: dict) -> None:
+    """Validate the settings shapes plan_merge relies on before it touches
+    anything, so a malformed-but-parseable settings file produces an
+    operational error naming the offending key path instead of a raw
+    AttributeError/TypeError escaping as an uncaught traceback."""
+    if "hooks" in existing:
+        hooks = existing["hooks"]
+        if not isinstance(hooks, dict):
+            raise _shape_error("hooks")
+        for event, groups in hooks.items():
+            if not isinstance(groups, list):
+                raise _shape_error(f"hooks.{event}")
+            for group in groups:
+                if not isinstance(group, dict):
+                    raise _shape_error(f"hooks.{event}")
+                if "hooks" in group:
+                    group_hooks = group["hooks"]
+                    if not isinstance(group_hooks, list) or not all(
+                        isinstance(h, dict) for h in group_hooks
+                    ):
+                        raise _shape_error(f"hooks.{event}")
+    if "permissions" in existing:
+        permissions = existing["permissions"]
+        if not isinstance(permissions, dict):
+            raise _shape_error("permissions")
+        if "deny" in permissions and not isinstance(permissions["deny"], list):
+            raise _shape_error("permissions.deny")
+
+
 def plan_merge(existing: dict, template: dict) -> tuple[dict, dict[str, str]]:
     """Merge the filled template into a settings dict.
 
@@ -71,6 +108,7 @@ def plan_merge(existing: dict, template: dict) -> tuple[dict, dict[str, str]]:
     untouched. Returns (merged, actions) where actions maps each item to
     "added" / "updated" / "unchanged" for the ceremony plan display.
     """
+    _check_shape(existing)
     merged = json.loads(json.dumps(existing))  # deep copy
     actions: dict[str, str] = {}
     hooks = merged.setdefault("hooks", {})
@@ -121,6 +159,8 @@ def run_install(args, make_ma, print_report) -> int:
         return 2
 
     project = Path(args.project).resolve()
+    if not project.is_dir():
+        raise MemAttestError(f"project directory {project} does not exist")
     bin_path = find_memattest_bin()
 
     if args.memory_dir is not None:
@@ -135,6 +175,9 @@ def run_install(args, make_ma, print_report) -> int:
                 "--memory-dir explicitly, or run one Claude Code session in "
                 "the project first so the harness creates it"
             )
+
+    if args.memory_dir is not None and not memory_dir.is_dir():
+        derivation = "given — does not exist yet; init will create it"
 
     args.memory_dir = str(memory_dir)
     ma = make_ma(args)

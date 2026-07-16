@@ -138,7 +138,7 @@ for typed confirmation before writing anything — and the `PreToolUse`
 guard denies agent-run `memattest install` invocations, since the command
 rewrites the same trust surface the guard protects.
 
-Prefer to wire things by hand, or using another harness? Copy the hooks
+Prefer to wire things by hand, or use another harness? Copy the hooks
 and permission rules from
 [`src/memattest/integrations/claude_code/settings-snippet.json`](src/memattest/integrations/claude_code/settings-snippet.json)
 into your project's `.claude/settings.json`, substituting two placeholders:
@@ -471,7 +471,10 @@ A few related boundaries are worth calling out:
   deliberately. It's more of a limited protection against accidental scripting. 
   You should rely on the harness-level `PreToolUse` guard to keep agents away from
   `adopt`; the signed `adopt` entry (previous bullet) is what keeps even a
-  successful bypass from being silent.
+  successful bypass from being silent. The `install` command carries the
+  identical best-effort check and the identical answer: the `PreToolUse`
+  guard is the layer that keeps agents away from it, and unlike `adopt` a
+  bypassed install leaves no signed log entry — only the settings-file diff.
 - **Trust anchor.** `verify` re-derives the public key from the signing seed
   in the backend keystore and cross-checks `pubkey.ed25519` on disk, so an
   attacker with write access to the memory directory who swaps the pubkey
