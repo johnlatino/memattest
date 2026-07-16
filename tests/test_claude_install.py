@@ -266,7 +266,9 @@ def test_install_nonexistent_project_is_operational_error(tmp_path, monkeypatch,
     monkeypatch.setattr("sys.stdin", fake)
     rc = cli.main(["install", "--project", str(tmp_path / "no-such-dir")])
     assert rc == 2
-    assert "does not exist" in capsys.readouterr().err
+    # "project directory" discriminates the project check from the
+    # derived-memory-dir error, which also says "does not exist".
+    assert "project directory" in capsys.readouterr().err
 
 
 def test_install_plan_flags_absent_given_memory_dir(tmp_path, monkeypatch, capsys):
