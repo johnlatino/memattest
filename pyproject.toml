@@ -22,3 +22,6 @@ memattest = "memattest.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+memattest = ["integrations/claude_code/*.json"]

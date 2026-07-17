@@ -473,3 +473,36 @@ def test_record_delete_prints_success_line(memdir, capsys):
     capsys.readouterr()
     assert run("record", *base(memdir), "--path", str(f), "--op", "delete") == 0
     assert capsys.readouterr().out.strip() == "recorded delete of notes.md at entry 2"
+
+
+def _assert_denied_for_install(capsys):
+    out = json.loads(capsys.readouterr().out)
+    hso = out["hookSpecificOutput"]
+    assert hso["hookEventName"] == "PreToolUse"
+    assert hso["permissionDecision"] == "deny"
+    assert "install" in hso["permissionDecisionReason"]
+
+
+def test_hook_pre_tool_use_denies_bare_install(memdir, capsys, monkeypatch):
+    _pre_tool_use(monkeypatch, "Bash", "memattest install --project .")
+    assert run("hook", "pre-tool-use", *base(memdir)) == 0
+    _assert_denied_for_install(capsys)
+
+
+def test_hook_pre_tool_use_denies_quoted_exe_install(memdir, capsys, monkeypatch):
+    _pre_tool_use(monkeypatch, "PowerShell",
+                  '& "C:/repo/.venv/Scripts/memattest.exe" install')
+    assert run("hook", "pre-tool-use", *base(memdir)) == 0
+    _assert_denied_for_install(capsys)
+
+
+def test_hook_pre_tool_use_allows_pip_install_memattest(memdir, capsys, monkeypatch):
+    _pre_tool_use(monkeypatch, "Bash", "pip install memattest")
+    assert run("hook", "pre-tool-use", *base(memdir)) == 0
+    assert capsys.readouterr().out.strip() == ""
+
+
+def test_hook_pre_tool_use_allows_init(memdir, capsys, monkeypatch):
+    _pre_tool_use(monkeypatch, "Bash", "memattest init --memory-dir .")
+    assert run("hook", "pre-tool-use", *base(memdir)) == 0
+    assert capsys.readouterr().out.strip() == ""

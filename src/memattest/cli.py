@@ -168,6 +168,11 @@ def cmd_prove(args) -> int:
     return 0
 
 
+def cmd_install(args) -> int:
+    from .integrations.claude_code.install import run_install
+    return run_install(args, _make_ma, _print_report)
+
+
 def _read_hook_payload() -> dict:
     try:
         payload = json.load(sys.stdin)
@@ -226,6 +231,12 @@ def cmd_hook_session_start(args) -> int:
 # still matches. Renaming the binary defeats this; the hook is defense-in-depth.
 _ADOPT_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+adopt\b", re.IGNORECASE)
 
+# The installer rewrites the hook configuration itself — the same trust
+# surface the settings guard protects — so agent-run invocations are denied
+# like adopt. 'pip install memattest' does not match: memattest must
+# immediately precede install.
+_INSTALL_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+install\b", re.IGNORECASE)
+
 # The Claude Code settings files configure the memattest hooks themselves, and
 # 'disableAllHooks' silences every hook from any settings scope — an agent
 # that can touch either can un-hook memattest for its next session. Matched
@@ -261,6 +272,10 @@ def cmd_hook_pre_tool_use(args) -> int:
     if _ADOPT_INVOCATION.search(normalized):
         _deny("memattest adopt may only be run by a human at an "
               "interactive terminal, not by the agent")
+    elif _INSTALL_INVOCATION.search(normalized):
+        _deny("memattest install rewrites the Claude Code hook configuration "
+              "and may only be run by a human at an interactive terminal, "
+              "not by the agent")
     elif _SETTINGS_TARGET.search(normalized):
         _deny("this command touches the Claude Code settings files (or the "
               "hook-disabling flag) that configure the memattest hooks; "
@@ -324,6 +339,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--index", type=int)
     p.add_argument("--old-size", type=int)
     p.set_defaults(fn=cmd_prove)
+
+    p = sub.add_parser("install",
+                       help="wire the Claude Code hooks for a project (interactive only)")
+    p.add_argument("--project", default=".",
+                   help="project root whose .claude settings get wired "
+                            "(default: current directory)")
+    p.add_argument("--memory-dir",
+                   help="memory directory; derived from the project path when omitted")
+    p.add_argument("--keystore", choices=["keyring", "file"], default=None,
+                   help="backend keystore used if init runs; recorded in the "
+                            "log's config.toml")
+    p.set_defaults(fn=cmd_install)
 
     p = sub.add_parser("hook", help="harness hook entry points")
     hook_sub = p.add_subparsers(dest="hook_command", required=True)
