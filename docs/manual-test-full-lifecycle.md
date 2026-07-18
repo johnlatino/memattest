@@ -9,8 +9,9 @@ listed for every step, and several steps are *supposed* to fail.
 
 Order matters: Parts A–D are non-destructive to the test log; Part E ends
 with a one-way key deletion (no rotation exists), so it doubles as the
-start of cleanup. Part F is optional hook wiring for a real Claude Code
-project.
+start of cleanup. Part F is the reversible watch-list part, Part G is
+optional hook wiring for a real Claude Code project, and Part H is
+cleanup.
 
 Set the target once. For a real Claude Code project this is
 `C:\Users\jlatino\.claude\projects\<project-slug>\memory`; a scratch folder
