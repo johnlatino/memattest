@@ -330,6 +330,44 @@ combine it pairwise with each hash in the path — and compares the result
 against the root in the tree head. A match proves the entry is in the
 tree that head commits to; they never need the rest of the log.
 
+## Watching the trust surface
+
+memattest guards the files in your memory directory, but the hook
+configuration that makes it run — the Claude Code settings file, and
+instruction files like `CLAUDE.md` — lives outside that directory. The
+watch list extends coverage to designated external files: an out-of-band
+edit to a watched file is reported at the next session start, exactly like
+a tampered memory file.
+
+`memattest install` automatically watches the settings file it writes, so
+the hook configuration is covered out of the box. To watch another file,
+adopt it — a path outside the memory directory is recorded as a watched
+file rather than a memory file:
+
+```bash
+memattest adopt --path <PROJECT>/CLAUDE.md --memory-dir <MEMORY_DIR> --reason "baseline project instructions"
+```
+
+When a watched file legitimately changes, re-baseline it by adopting it
+again with a reason. To stop watching a file (or to clear the report for
+one you deliberately deleted), use `unwatch`:
+
+```bash
+memattest unwatch --path <PROJECT>/CLAUDE.md --memory-dir <MEMORY_DIR> --reason "no longer used"
+```
+
+Both `adopt` and `unwatch` run only from an interactive terminal with typed
+confirmation, and the `PreToolUse` guard denies agent-run invocations, since
+changing what is watched changes your tamper-detection coverage.
+
+Two limits worth knowing. If someone removes the memattest hook from the
+settings file entirely, verification never runs and the watch on that file
+never fires — the remaining signal is that memattest goes silent at session
+start (no `OK N entries verified` line), which a person has to notice.
+And same-user malware can delete watch entries and re-sign the log, the same
+limit that applies to memory entries. Both are addressed by the planned
+validator that runs under a separate account.
+
 ## Hardening your installation
 
 memattest detects tampering; it does not prevent it. Filesystem access

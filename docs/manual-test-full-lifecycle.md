@@ -215,7 +215,43 @@ cross-check skipped.
 
 ---
 
-## Part F — optional: hook integration (real Claude Code project only)
+## Part F — the watch list (reversible)
+
+Watch an external file, tamper with it, and confirm the report; then stop
+watching it. Run the `adopt`/`unwatch` commands yourself in an interactive
+terminal — the guard denies them to agents, and they require typed
+confirmation.
+
+```powershell
+Set-Content -Encoding utf8 "$mem\..\WATCHED.md" "baseline"
+$watched = (Resolve-Path "$mem\..\WATCHED.md").Path
+.venv\Scripts\memattest adopt --path $watched --memory-dir $mem --reason "watch test"
+.venv\Scripts\memattest verify --memory-dir $mem; $LASTEXITCODE
+```
+
+Expected: after typing `adopt`, `adopted 1 file(s)`; verify prints
+`OK <n> entries verified`, exit 0.
+
+```powershell
+Set-Content -Encoding utf8 $watched "tampered"
+.venv\Scripts\memattest verify --memory-dir $mem; $LASTEXITCODE
+```
+
+Expected: exit 1, `PROBLEM kind=modified path=<absolute path to WATCHED.md>`
+with `[scope=watch]` in the detail.
+
+```powershell
+.venv\Scripts\memattest unwatch --path $watched --memory-dir $mem --reason "done"
+.venv\Scripts\memattest verify --memory-dir $mem; $LASTEXITCODE
+Remove-Item $watched
+```
+
+Expected: after typing `unwatch`, `stopped watching 1 file(s)`; verify is
+`OK` again, exit 0.
+
+---
+
+## Part G — optional: hook integration (real Claude Code project only)
 
 Do this before Part E if you want the hooks running against a live key.
 Wire the three hooks into the test project's settings by hand, following
@@ -235,7 +271,7 @@ agents cannot make these edits. Then:
 
 ---
 
-## Part G — cleanup
+## Part H — cleanup
 
 ```powershell
 Remove-Item -Recurse -Force "$mem\.memattest"
@@ -243,7 +279,7 @@ Remove-Item "$mem\planted.md", "$mem\lifecycle-note.md" -ErrorAction SilentlyCon
 ```
 
 The Credential Manager entry was already deleted in E2 (if you skipped
-E2, run its `delete_password` line now). If you wired hooks in Part F,
+E2, run its `delete_password` line now). If you wired hooks in Part G,
 remove them from the test project's settings by hand. The memory files
 you did not create stay untouched throughout.
 
@@ -263,5 +299,6 @@ you did not create stay untouched throughout.
 - [ ] E1 key-mismatch on swapped pubkey, no bad-signature noise, restore clean
 - [ ] E2 key-missing after credential deletion
 - [ ] E3 --no-key-check still verifies the disk-based checks
-- [ ] F (optional) session-start delivery, tamper report, agent adopt denied
-- [ ] G scratch state removed; memory files untouched
+- [ ] F adopted watched file reports tampering with [scope=watch]; unwatch clears it
+- [ ] G (optional) session-start delivery, tamper report, agent adopt denied
+- [ ] H scratch state removed; memory files untouched
