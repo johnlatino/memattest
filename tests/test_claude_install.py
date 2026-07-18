@@ -218,7 +218,7 @@ def test_install_full_drive_through(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "initialized; adopted 1 pre-existing file(s)" in out
-    assert "OK 1 entries verified" in out
+    assert "OK 2 entries verified" in out
     assert "next Claude Code session" in out
     settings = json.loads(
         (project / ".claude" / "settings.json").read_text(encoding="utf-8"))
@@ -283,6 +283,21 @@ def test_install_plan_flags_absent_given_memory_dir(tmp_path, monkeypatch, capsy
     assert rc == 0
     assert "does not exist yet; init will create it" in out
     assert "initialized; adopted 0 pre-existing file(s)" in out
+
+
+def test_install_watches_the_settings_file(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    _tty_stdin(monkeypatch, ["1", "install"])
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    assert rc == 0
+    from memattest.core import MemAttest
+    from memattest.identity import FileKeyStore
+    ma = MemAttest(mem, keystore=FileKeyStore(mem / ".memattest" / "key.sealed", b"pw"))
+    watched = ma.derived_watch_state()
+    target = (project / ".claude" / "settings.json").resolve().as_posix()
+    assert target in watched
 
 
 def test_install_derived_memory_dir_missing_is_operational_error(tmp_path, monkeypatch, capsys):

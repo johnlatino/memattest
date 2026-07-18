@@ -206,6 +206,7 @@ def run_install(args, make_ma, print_report) -> int:
     print(f"  memattest:   {bin_path.as_posix()}")
     print(f"  settings:    {target.as_posix()}")
     print(f"  init:        {'will run first (not yet initialized)' if init_needed else 'already initialized, skipped'}")
+    print(f"  watch:       {target.as_posix()} (added to tamper detection)")
     for item, action in actions.items():
         print(f"  {item}: {action}")
     try:
@@ -227,6 +228,9 @@ def run_install(args, make_ma, print_report) -> int:
             "initialized, so re-running install completes the wiring"
         ) from exc
     print(f"wrote hooks and deny rules to {target.as_posix()}")
+
+    ma.adopt([target], reason="watched by memattest install")
+    print(f"watching {target.as_posix()} for out-of-band changes")
 
     report = ma.verify()
     print_report(report, ma.store.count())
