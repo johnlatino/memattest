@@ -53,6 +53,15 @@ class MemAttest:
             raise MemAttestError(f"{path} is inside the memattest state directory and cannot be recorded")
         return rel.as_posix()
 
+    def _scope_for(self, path: Path) -> str:
+        # A path under the memory directory is a memory file; anything else
+        # is a watched external file (spec 2026-07-17).
+        try:
+            Path(path).resolve().relative_to(self.memory_dir.resolve())
+        except ValueError:
+            return "watch"
+        return "memory"
+
     def _identity(self) -> Identity:
         return Identity.load(self.keystore, self.key_name)
 
@@ -70,15 +79,21 @@ class MemAttest:
         leaves = self.store.leaf_bytes()
         self.sth_chain.append(build_sth(len(leaves), merkle.root_hash(leaves), identity))
 
-    def _append(self, identity: Identity, op: str, path: Path, reason: str | None) -> dict:
+    def _append(self, identity: Identity, op: str, path: Path, reason: str | None,
+                scope: str = "memory") -> dict:
+        if scope == "memory":
+            path_str = self._rel(path)
+        else:
+            path_str = Path(path).resolve().as_posix()
         content_hash = None if op == "delete" else file_content_hash(Path(path))
         entry = build_entry(
             index=self.store.count(),
             op=op,
-            path=self._rel(path),
+            path=path_str,
             content_hash=content_hash,
             provenance=provenance.collect(),
             reason=reason,
+            scope=scope,
         )
         self.store.append(entry)
         return entry
@@ -107,7 +122,8 @@ class MemAttest:
         if not self.initialized:
             raise MemAttestError("not initialized; run init first")
         identity = self._identity()
-        entries = [self._append(identity, "adopt", p, reason) for p in paths]
+        entries = [self._append(identity, "adopt", p, reason, scope=self._scope_for(p))
+                   for p in paths]
         self._seal_current_tree(identity)
         self._write_config_if_named()
         return entries
@@ -115,6 +131,8 @@ class MemAttest:
     def derived_state(self) -> dict[str, str]:
         state: dict[str, str] = {}
         for e in self.store.load_all():
+            if e.get("scope", "memory") != "memory":
+                continue
             if e["op"] in ("write", "adopt"):
                 state[e["path"]] = e["content_hash"]
             elif e["op"] == "delete":
