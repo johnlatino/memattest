@@ -139,6 +139,17 @@ class MemAttest:
                 state.pop(e["path"], None)
         return state
 
+    def derived_watch_state(self) -> dict[str, str]:
+        state: dict[str, str] = {}
+        for e in self.store.load_all():
+            if e.get("scope", "memory") != "watch":
+                continue
+            if e["op"] in ("write", "adopt"):
+                state[e["path"]] = e["content_hash"]
+            elif e["op"] == "delete":
+                state.pop(e["path"], None)
+        return state
+
     def verify(self, key_check: bool = True) -> VerifyReport:
         problems: list[dict] = []
         entries = self.store.load_all()
@@ -250,6 +261,27 @@ class MemAttest:
         for rel in actual:
             if rel not in expected:
                 problems.append(_problem("unlogged", rel, "file on disk was never recorded in the log"))
+
+        # Check 3 (watch): designated external files, keyed by absolute path.
+        watch_expected = self.derived_watch_state()
+        for wpath, exp_hash in watch_expected.items():
+            e = last_entry[wpath]
+            wf = Path(wpath)
+            if not wf.exists():
+                problems.append(_problem(
+                    "missing", wpath,
+                    f"watched file absent on disk; last recorded at entry "
+                    f"{e['index']} ({e['timestamp']}) [scope=watch]", e["index"]))
+                continue
+            try:
+                actual_hash = file_content_hash(wf)
+            except OSError as exc:
+                raise MemAttestError(f"cannot read watched file {wpath}: {exc}") from exc
+            if actual_hash != exp_hash:
+                problems.append(_problem(
+                    "modified", wpath,
+                    f"expected {exp_hash}, found {actual_hash}; last recorded at "
+                    f"entry {e['index']} ({e['timestamp']}) [scope=watch]", e["index"]))
 
         ok = not problems
         return VerifyReport(ok=ok, exit_code=0 if ok else 1, problems=problems)

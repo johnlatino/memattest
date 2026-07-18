@@ -70,3 +70,64 @@ def test_adopt_memory_path_still_memory_scope(mem):
     f.write_text("v1", encoding="utf-8")
     (entry,) = mem.adopt([f], reason="memory adopt")
     assert entry["scope"] == "memory" and entry["path"] == "notes.md"
+
+
+def kinds(report):
+    return [p["kind"] for p in report.problems]
+
+
+def _watched(mem, tmp_path):
+    external = tmp_path / "watched.md"
+    external.write_text("baseline", encoding="utf-8")
+    mem.adopt([external], reason="watch it")
+    return external
+
+
+def test_clean_watched_file_verifies(mem, tmp_path):
+    _watched(mem, tmp_path)
+    r = mem.verify()
+    assert r.ok and r.exit_code == 0
+
+
+def test_modified_watched_file_reported(mem, tmp_path):
+    external = _watched(mem, tmp_path)
+    external.write_text("tampered", encoding="utf-8")
+    r = mem.verify()
+    assert not r.ok and r.exit_code == 1
+    (p,) = [p for p in r.problems if p["kind"] == "modified"]
+    assert p["path"] == external.resolve().as_posix()
+    assert "scope=watch" in p["detail"]
+
+
+def test_deleted_watched_file_reported_missing(mem, tmp_path):
+    external = _watched(mem, tmp_path)
+    external.unlink()
+    r = mem.verify()
+    assert "missing" in kinds(r)
+    (p,) = [p for p in r.problems if p["kind"] == "missing"]
+    assert p["path"] == external.resolve().as_posix()
+
+
+def test_unreadable_watched_file_is_operational_error(mem, tmp_path, monkeypatch):
+    external = _watched(mem, tmp_path)
+    import memattest.core as core_mod
+
+    orig_file_content_hash = core_mod.file_content_hash
+
+    def boom(p):
+        if Path(p) == external:
+            raise PermissionError("locked")
+        return orig_file_content_hash(p)
+
+    monkeypatch.setattr(core_mod, "file_content_hash", boom)
+    from memattest.errors import MemAttestError
+    with pytest.raises(MemAttestError, match="cannot read watched file"):
+        mem.verify()
+
+
+def test_memory_verification_unaffected_by_watch(mem, tmp_path):
+    _watched(mem, tmp_path)
+    (mem.memory_dir / "MEMORY.md").write_text("changed", encoding="utf-8")
+    r = mem.verify()
+    mem_mods = [p for p in r.problems if p["kind"] == "modified" and p["path"] == "MEMORY.md"]
+    assert len(mem_mods) == 1
