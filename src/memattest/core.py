@@ -128,6 +128,19 @@ class MemAttest:
         self._write_config_if_named()
         return entries
 
+    def unwatch(self, paths: list[Path], reason: str) -> list[dict]:
+        if not self.initialized:
+            raise MemAttestError("not initialized; run init first")
+        watched = self.derived_watch_state()
+        for p in paths:
+            if Path(p).resolve().as_posix() not in watched:
+                raise MemAttestError(f"{Path(p).resolve().as_posix()} is not currently watched")
+        identity = self._identity()
+        entries = [self._append(identity, "delete", p, reason, scope="watch") for p in paths]
+        self._seal_current_tree(identity)
+        self._write_config_if_named()
+        return entries
+
     def derived_state(self) -> dict[str, str]:
         state: dict[str, str] = {}
         for e in self.store.load_all():

@@ -131,3 +131,20 @@ def test_memory_verification_unaffected_by_watch(mem, tmp_path):
     r = mem.verify()
     mem_mods = [p for p in r.problems if p["kind"] == "modified" and p["path"] == "MEMORY.md"]
     assert len(mem_mods) == 1
+
+
+def test_unwatch_drops_file_and_clears_missing(mem, tmp_path):
+    external = _watched(mem, tmp_path)
+    external.unlink()
+    assert "missing" in kinds(mem.verify())
+    mem.unwatch([external], reason="stopped using it")
+    assert external.resolve().as_posix() not in mem.derived_watch_state()
+    assert mem.verify().ok
+
+
+def test_unwatch_unwatched_file_errors(mem, tmp_path):
+    from memattest.errors import MemAttestError
+    never = tmp_path / "never.md"
+    never.write_text("x", encoding="utf-8")
+    with pytest.raises(MemAttestError, match="not currently watched"):
+        mem.unwatch([never], reason="typo")

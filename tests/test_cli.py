@@ -506,3 +506,45 @@ def test_hook_pre_tool_use_allows_init(memdir, capsys, monkeypatch):
     _pre_tool_use(monkeypatch, "Bash", "memattest init --memory-dir .")
     assert run("hook", "pre-tool-use", *base(memdir)) == 0
     assert capsys.readouterr().out.strip() == ""
+
+
+def test_cli_unwatch_stops_watching(tmp_path, monkeypatch, capsys):
+    import io
+    d = tmp_path / "memory"
+    d.mkdir()
+    (d / "MEMORY.md").write_text("index", encoding="utf-8")
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    cli.main(["init", "--memory-dir", str(d), "--keystore", "file"])
+    external = tmp_path / "watched.md"
+    external.write_text("x", encoding="utf-8")
+    fake = io.StringIO(); fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "adopt")
+    cli.main(["adopt", "--path", str(external), "--memory-dir", str(d), "--keystore", "file",
+              "--reason", "watch it"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": "unwatch")
+    rc = cli.main(["unwatch", "--path", str(external), "--memory-dir", str(d),
+                   "--keystore", "file", "--reason", "done"])
+    assert rc == 0
+    assert "stopped watching" in capsys.readouterr().out
+
+
+def test_cli_unwatch_refuses_without_tty(tmp_path, monkeypatch, capsys):
+    import io
+    d = tmp_path / "memory"; d.mkdir()
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    cli.main(["init", "--memory-dir", str(d), "--keystore", "file"])
+    fake = io.StringIO(); fake.isatty = lambda: False
+    monkeypatch.setattr("sys.stdin", fake)
+    rc = cli.main(["unwatch", "--path", str(tmp_path / "x.md"), "--memory-dir", str(d),
+                   "--keystore", "file", "--reason", "r"])
+    assert rc == 2
+    assert "interactive terminal" in capsys.readouterr().err
+
+
+def test_hook_pre_tool_use_denies_unwatch(memdir, capsys, monkeypatch):
+    _pre_tool_use(monkeypatch, "Bash", "memattest unwatch --path x --memory-dir . --reason r")
+    assert run("hook", "pre-tool-use", *base(memdir)) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "unwatch" in out["hookSpecificOutput"]["permissionDecisionReason"]
