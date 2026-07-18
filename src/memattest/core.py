@@ -275,7 +275,7 @@ class MemAttest:
             if rel not in expected:
                 problems.append(_problem("unlogged", rel, "file on disk was never recorded in the log"))
 
-        # Check 3 (watch): designated external files, keyed by absolute path.
+        # Check 4 (watch): designated external files, keyed by absolute path.
         watch_expected = self.derived_watch_state()
         for wpath, exp_hash in watch_expected.items():
             e = last_entry[wpath]

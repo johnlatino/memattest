@@ -297,7 +297,10 @@ consistency, and file state are still fully verified against the pubkey file
 that travels with the log. After restoring a backup onto a new machine,
 verify with `--no-key-check` first and re-init only once the report is clean
 and you have reviewed the memory contents — re-init adopts whatever is on
-disk.
+disk. A copied log verified on another machine will report its watched
+files as `missing`, since their recorded paths are absolute and local to the
+origin machine; this is expected, because the watched files themselves do
+not travel with the log.
 
 ## Auditing with proofs
 
@@ -363,10 +366,16 @@ changing what is watched changes your tamper-detection coverage.
 Two limits worth knowing. If someone removes the memattest hook from the
 settings file entirely, verification never runs and the watch on that file
 never fires — the remaining signal is that memattest goes silent at session
-start (no `OK N entries verified` line), which a person has to notice.
-And same-user malware can delete watch entries and re-sign the log, the same
-limit that applies to memory entries. Both are addressed by the planned
-validator that runs under a separate account.
+start (no `OK N entries verified` line), which a person has to notice. And an
+attacker who can write the state directory can delete the newest entries
+together with their signed tree heads: this needs only file access, not the
+signing key, and verify cannot detect it, because the surviving tree heads
+still check out. This is the rollback limitation the log has always had, but
+it bites watch coverage harder — a watched file on disk with no log entry
+looks exactly like one that was never watched, so a silently dropped watch
+entry leaves no trace. Both are addressed by the planned validator running
+under a separate account, which also anchors the latest tree head against
+rollback.
 
 ## Hardening your installation
 

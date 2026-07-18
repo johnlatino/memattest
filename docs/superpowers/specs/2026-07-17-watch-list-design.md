@@ -20,8 +20,9 @@ files so such edits are reported at the next session start.
 A watched file is recorded as an ordinary log entry, distinguished by a new
 `scope` field. Because watch data lives in the signed, append-only log, the
 existing Merkle tree and signed-tree-head checks protect it with no new
-integrity mechanism — deleting a watch entry is the same log tampering the
-tree and consistency checks already catch. Verify hashes each watched file
+integrity mechanism — deleting a mid-log watch entry is the same log
+tampering the tree and consistency checks already catch (suffix truncation
+is the log's existing rollback limitation — see §7). Verify hashes each watched file
 at its recorded absolute path and reports divergence like memory tampering.
 Reconciliation reuses `adopt`; removal is a new guarded `unwatch` command.
 
@@ -132,9 +133,17 @@ Two honest boundaries:
   the expected `memattest: OK N entries verified` line is absent at session
   start. This is not an automated check and cannot be one within v1; the v2
   validator, running under a separate account, closes it.
-- **Same-user malware** can delete watch entries and re-sign the log, the
-  same limitation that applies to memory entries. The v2 validator closes
-  this too.
+- **Suffix truncation needs only file access.** An attacker who can write the
+  state directory can delete the newest entries together with their covering
+  tree heads; the surviving tree heads still verify and the latest still
+  matches the truncated length, so `verify` does not detect it — no signing
+  key required. This is the log's existing rollback limitation, and it bites
+  watch coverage harder than memory: a watched file on disk with no entry is
+  indistinguishable from one never watched, so a dropped watch entry leaves no
+  disk-side trace. Mid-log deletion of a watch entry is still caught by the
+  tree and consistency checks. The v2 validator, and an external anchor for
+  the latest tree head, close the rollback gap; same-user malware (which can
+  also re-sign) remains the validator's domain too.
 
 ## 8. Why standalone config sealing was dropped
 
@@ -181,3 +190,6 @@ same-user malware and is closed by the v2 validator, not by sealing.
   addition, not built now.
 - Watching directories or globs — only individually named files.
 - Any config-table or config-sealing mechanism (§8).
+- Sealing the latest tree size/head in the backend keystore so verify can
+  detect suffix truncation without the separate-account validator is a
+  possible v1.x hardening, not built here.

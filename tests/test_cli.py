@@ -548,3 +548,21 @@ def test_hook_pre_tool_use_denies_unwatch(memdir, capsys, monkeypatch):
     out = json.loads(capsys.readouterr().out)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "unwatch" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_hook_pre_tool_use_denies_quoted_path_prefixed_unwatch(memdir, capsys, monkeypatch):
+    _pre_tool_use(monkeypatch, "PowerShell",
+                  '& "C:/repo/.venv/Scripts/memattest" unwatch --path x --memory-dir . --reason r')
+    assert run("hook", "pre-tool-use", *base(memdir)) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "unwatch" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_hook_pre_tool_use_denies_exe_suffix_unwatch(memdir, capsys, monkeypatch):
+    _pre_tool_use(monkeypatch, "Bash",
+                  "/c/repo/.venv/Scripts/memattest.exe unwatch --path x --memory-dir . --reason r")
+    assert run("hook", "pre-tool-use", *base(memdir)) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "unwatch" in out["hookSpecificOutput"]["permissionDecisionReason"]

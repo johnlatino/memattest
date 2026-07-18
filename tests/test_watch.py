@@ -148,3 +148,25 @@ def test_unwatch_unwatched_file_errors(mem, tmp_path):
     never.write_text("x", encoding="utf-8")
     with pytest.raises(MemAttestError, match="not currently watched"):
         mem.unwatch([never], reason="typo")
+
+
+def test_legacy_scopeless_log_still_verifies(tmp_path):
+    d = tmp_path / "memory"
+    d.mkdir()
+    (d / "MEMORY.md").write_text("index", encoding="utf-8")
+    m = MemAttest(d, keystore=MemoryKeyStore())
+    m.init()
+    # Simulate a pre-feature log: strip scope from the on-disk entry files.
+    import json as _json
+    for f in m.store.entries_dir.glob("*.json"):
+        e = _json.loads(f.read_text(encoding="utf-8"))
+        e.pop("scope", None)
+        from memattest.canonical import canonical_json
+        f.write_bytes(canonical_json(e))
+    # Re-seal so the STH matches the scope-less bytes.
+    import shutil
+    shutil.rmtree(m.sth_chain.sth_dir)
+    m._seal_current_tree(m._identity())
+    r = m.verify()
+    assert r.ok and r.exit_code == 0
+    assert "MEMORY.md" in m.derived_state()
