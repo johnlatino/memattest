@@ -336,15 +336,15 @@ tree that head commits to; they never need the rest of the log.
 ## Watching the trust surface
 
 memattest guards the files in your memory directory, but the hook
-configuration that makes it run — the Claude Code settings file, and
-instruction files like `CLAUDE.md` — lives outside that directory. The
-watch list extends coverage to designated external files: an out-of-band
+configuration that makes it run- the Claude Code settings file, and
+instruction files like `CLAUDE.md`- lives outside that directory. The
+watch list extends coverage to designated external files (outside the memory dir): an out-of-band
 edit to a watched file is reported at the next session start, exactly like
 a tampered memory file.
 
 `memattest install` automatically watches the settings file it writes, so
 the hook configuration is covered out of the box. To watch another file,
-adopt it — a path outside the memory directory is recorded as a watched
+adopt it- a path outside the memory directory is recorded as a watched
 file rather than a memory file:
 
 ```bash
@@ -363,18 +363,20 @@ Both `adopt` and `unwatch` run only from an interactive terminal with typed
 confirmation, and the `PreToolUse` guard denies agent-run invocations, since
 changing what is watched changes your tamper-detection coverage.
 
-Two limits worth knowing. If someone removes the memattest hook from the
-settings file entirely, verification never runs and the watch on that file
-never fires — the remaining signal is that memattest goes silent at session
-start (no `OK N entries verified` line), which a person has to notice. And an
-attacker who can write the state directory can delete the newest entries
+### KNOWN LIMITATIONS: 
+*LIMITATION 1:* If someone removes the memattest hook from the
+settings file entirely, verification won't run and the watch on that file
+won't fire. If you have previously enabled memattest and you stop seeing the message 
+at session start (no `OK N entries verified` line), that may indicate malicious disabling 
+by removal of the hook. 
+
+*LIMITATION 2:* An attacker who can write the state directory can delete the newest entries
 together with their signed tree heads: this needs only file access, not the
-signing key, and verify cannot detect it, because the surviving tree heads
-still check out. This is the rollback limitation the log has always had, but
-it bites watch coverage harder — a watched file on disk with no log entry
-looks exactly like one that was never watched, so a silently dropped watch
-entry leaves no trace. Both are addressed by the planned validator running
-under a separate account, which also anchors the latest tree head against
+signing key. Verify won't detect this change because the surviving tree heads
+still check out. A silently dropped watch entry essentially leaves no trace. 
+
+Both will be addressed by the planned implementation of a validator running
+under a separate account, which will also secure the latest tree head against
 rollback.
 
 ## Hardening your installation

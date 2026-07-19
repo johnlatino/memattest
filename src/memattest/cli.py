@@ -257,8 +257,7 @@ _ADOPT_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+adopt\b", re.IGNORECASE)
 # immediately precede install.
 _INSTALL_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+install\b", re.IGNORECASE)
 
-# unwatch narrows tamper-detection coverage, so agent-run invocations are
-# denied like adopt and install.
+# Deny unwatch from agent-run invocation because it removes tamper-detection coverage.
 _UNWATCH_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+unwatch\b", re.IGNORECASE)
 
 # The Claude Code settings files configure the memattest hooks themselves, and
