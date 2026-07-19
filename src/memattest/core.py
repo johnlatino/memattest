@@ -53,6 +53,15 @@ class MemAttest:
             raise MemAttestError(f"{path} is inside the memattest state directory and cannot be recorded")
         return rel.as_posix()
 
+    def _scope_for(self, path: Path) -> str:
+        # A path under the memory directory is a memory file; anything else
+        # is a watched external file (spec 2026-07-17).
+        try:
+            Path(path).resolve().relative_to(self.memory_dir.resolve())
+        except ValueError:
+            return "watch"
+        return "memory"
+
     def _identity(self) -> Identity:
         return Identity.load(self.keystore, self.key_name)
 
@@ -70,15 +79,21 @@ class MemAttest:
         leaves = self.store.leaf_bytes()
         self.sth_chain.append(build_sth(len(leaves), merkle.root_hash(leaves), identity))
 
-    def _append(self, identity: Identity, op: str, path: Path, reason: str | None) -> dict:
+    def _append(self, identity: Identity, op: str, path: Path, reason: str | None,
+                scope: str = "memory") -> dict:
+        if scope == "memory":
+            path_str = self._rel(path)
+        else:
+            path_str = Path(path).resolve().as_posix()
         content_hash = None if op == "delete" else file_content_hash(Path(path))
         entry = build_entry(
             index=self.store.count(),
             op=op,
-            path=self._rel(path),
+            path=path_str,
             content_hash=content_hash,
             provenance=provenance.collect(),
             reason=reason,
+            scope=scope,
         )
         self.store.append(entry)
         return entry
@@ -107,7 +122,21 @@ class MemAttest:
         if not self.initialized:
             raise MemAttestError("not initialized; run init first")
         identity = self._identity()
-        entries = [self._append(identity, "adopt", p, reason) for p in paths]
+        entries = [self._append(identity, "adopt", p, reason, scope=self._scope_for(p))
+                   for p in paths]
+        self._seal_current_tree(identity)
+        self._write_config_if_named()
+        return entries
+
+    def unwatch(self, paths: list[Path], reason: str) -> list[dict]:
+        if not self.initialized:
+            raise MemAttestError("not initialized; run init first")
+        watched = self.derived_watch_state()
+        for p in paths:
+            if Path(p).resolve().as_posix() not in watched:
+                raise MemAttestError(f"{Path(p).resolve().as_posix()} is not currently watched")
+        identity = self._identity()
+        entries = [self._append(identity, "delete", p, reason, scope="watch") for p in paths]
         self._seal_current_tree(identity)
         self._write_config_if_named()
         return entries
@@ -115,6 +144,19 @@ class MemAttest:
     def derived_state(self) -> dict[str, str]:
         state: dict[str, str] = {}
         for e in self.store.load_all():
+            if e.get("scope", "memory") != "memory":
+                continue
+            if e["op"] in ("write", "adopt"):
+                state[e["path"]] = e["content_hash"]
+            elif e["op"] == "delete":
+                state.pop(e["path"], None)
+        return state
+
+    def derived_watch_state(self) -> dict[str, str]:
+        state: dict[str, str] = {}
+        for e in self.store.load_all():
+            if e.get("scope", "memory") != "watch":
+                continue
             if e["op"] in ("write", "adopt"):
                 state[e["path"]] = e["content_hash"]
             elif e["op"] == "delete":
@@ -232,6 +274,27 @@ class MemAttest:
         for rel in actual:
             if rel not in expected:
                 problems.append(_problem("unlogged", rel, "file on disk was never recorded in the log"))
+
+        # Check 4 (watch): designated external files, keyed by absolute path.
+        watch_expected = self.derived_watch_state()
+        for wpath, exp_hash in watch_expected.items():
+            e = last_entry[wpath]
+            wf = Path(wpath)
+            if not wf.exists():
+                problems.append(_problem(
+                    "missing", wpath,
+                    f"watched file absent on disk; last recorded at entry "
+                    f"{e['index']} ({e['timestamp']}) [scope=watch]", e["index"]))
+                continue
+            try:
+                actual_hash = file_content_hash(wf)
+            except OSError as exc:
+                raise MemAttestError(f"cannot read watched file {wpath}: {exc}") from exc
+            if actual_hash != exp_hash:
+                problems.append(_problem(
+                    "modified", wpath,
+                    f"expected {exp_hash}, found {actual_hash}; last recorded at "
+                    f"entry {e['index']} ({e['timestamp']}) [scope=watch]", e["index"]))
 
         ok = not problems
         return VerifyReport(ok=ok, exit_code=0 if ok else 1, problems=problems)

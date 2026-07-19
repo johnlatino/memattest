@@ -17,14 +17,18 @@ def build_entry(
     provenance: dict,
     reason: str | None = None,
     timestamp: str | None = None,
+    scope: str = "memory",
 ) -> dict:
     if op not in ("write", "delete", "adopt"):
         raise ValueError(f"unknown op: {op}")
+    if scope not in ("memory", "watch"):
+        raise ValueError(f"unknown scope: {scope}")
     entry = {
         "scheme": SCHEME,
         "index": index,
         "timestamp": timestamp or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "op": op,
+        "scope": scope,
         "path": path,
         "content_hash": content_hash,
         "provenance": provenance,

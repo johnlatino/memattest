@@ -142,6 +142,26 @@ def cmd_adopt(args) -> int:
     return 0
 
 
+def cmd_unwatch(args) -> int:
+    if not sys.stdin.isatty():
+        print("error: unwatch requires an interactive terminal", file=sys.stderr)
+        return 2
+    ma = _make_ma(args)
+    if not ma.initialized:
+        raise MemAttestError("not initialized; run init first")
+    print(f"About to stop watching {len(args.paths)} file(s). Reason: {args.reason}")
+    try:
+        confirmed = input("Type 'unwatch' to confirm: ").strip() == "unwatch"
+    except (EOFError, KeyboardInterrupt):
+        confirmed = False
+    if not confirmed:
+        print("aborted", file=sys.stderr)
+        return 2
+    ma.unwatch([Path(p) for p in args.paths], reason=args.reason)
+    print(f"stopped watching {len(args.paths)} file(s)")
+    return 0
+
+
 def cmd_log(args) -> int:
     ma = _make_ma(args)
     for e in ma.store.load_all():
@@ -237,6 +257,9 @@ _ADOPT_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+adopt\b", re.IGNORECASE)
 # immediately precede install.
 _INSTALL_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+install\b", re.IGNORECASE)
 
+# Deny unwatch from agent-run invocation because it removes tamper-detection coverage.
+_UNWATCH_INVOCATION = re.compile(r"\bmemattest(\.exe)?\s+unwatch\b", re.IGNORECASE)
+
 # The Claude Code settings files configure the memattest hooks themselves, and
 # 'disableAllHooks' silences every hook from any settings scope — an agent
 # that can touch either can un-hook memattest for its next session. Matched
@@ -276,6 +299,10 @@ def cmd_hook_pre_tool_use(args) -> int:
         _deny("memattest install rewrites the Claude Code hook configuration "
               "and may only be run by a human at an interactive terminal, "
               "not by the agent")
+    elif _UNWATCH_INVOCATION.search(normalized):
+        _deny("memattest unwatch narrows tamper-detection coverage and may "
+              "only be run by a human at an interactive terminal, not by "
+              "the agent")
     elif _SETTINGS_TARGET.search(normalized):
         _deny("this command touches the Claude Code settings files (or the "
               "hook-disabling flag) that configure the memattest hooks; "
@@ -329,6 +356,15 @@ def main(argv: list[str] | None = None) -> int:
                    help="file to adopt; repeat the flag for multiple files")
     p.add_argument("--reason", required=True)
     p.set_defaults(fn=cmd_adopt)
+
+    p = sub.add_parser("unwatch", help="stop watching an external file (interactive only)")
+    p.add_argument("--memory-dir", required=True)
+    p.add_argument("--keystore", choices=["keyring", "file"], default=None,
+                   help="backend keystore; only needed for pre-config logs")
+    p.add_argument("--path", action="append", required=True, dest="paths",
+                   help="watched file to stop watching; repeat the flag for multiple files")
+    p.add_argument("--reason", required=True)
+    p.set_defaults(fn=cmd_unwatch)
 
     p = sub.add_parser("log", help="print entries as JSON lines")
     _add_common(p)

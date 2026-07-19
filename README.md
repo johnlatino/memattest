@@ -297,7 +297,10 @@ consistency, and file state are still fully verified against the pubkey file
 that travels with the log. After restoring a backup onto a new machine,
 verify with `--no-key-check` first and re-init only once the report is clean
 and you have reviewed the memory contents — re-init adopts whatever is on
-disk.
+disk. A copied log verified on another machine will report its watched
+files as `missing`, since their recorded paths are absolute and local to the
+origin machine; this is expected, because the watched files themselves do
+not travel with the log.
 
 ## Auditing with proofs
 
@@ -329,6 +332,52 @@ path, and a signed tree head recomputes the root — hash the entry, then
 combine it pairwise with each hash in the path — and compares the result
 against the root in the tree head. A match proves the entry is in the
 tree that head commits to; they never need the rest of the log.
+
+## Watching the trust surface
+
+memattest guards the files in your memory directory, but the hook
+configuration that makes it run- the Claude Code settings file, and
+instruction files like `CLAUDE.md`- lives outside that directory. The
+watch list extends coverage to designated external files (outside the memory dir): an out-of-band
+edit to a watched file is reported at the next session start, exactly like
+a tampered memory file.
+
+`memattest install` automatically watches the settings file it writes, so
+the hook configuration is covered out of the box. To watch another file,
+adopt it- a path outside the memory directory is recorded as a watched
+file rather than a memory file:
+
+```bash
+memattest adopt --path <PROJECT>/CLAUDE.md --memory-dir <MEMORY_DIR> --reason "baseline project instructions"
+```
+
+When a watched file legitimately changes, re-baseline it by adopting it
+again with a reason. To stop watching a file (or to clear the report for
+one you deliberately deleted), use `unwatch`:
+
+```bash
+memattest unwatch --path <PROJECT>/CLAUDE.md --memory-dir <MEMORY_DIR> --reason "no longer used"
+```
+
+Both `adopt` and `unwatch` run only from an interactive terminal with typed
+confirmation, and the `PreToolUse` guard denies agent-run invocations, since
+changing what is watched changes your tamper-detection coverage.
+
+### KNOWN LIMITATIONS: 
+*LIMITATION 1:* If someone removes the memattest hook from the
+settings file entirely, verification won't run and the watch on that file
+won't fire. If you have previously enabled memattest and you stop seeing the message 
+at session start (no `OK N entries verified` line), that may indicate malicious disabling 
+by removal of the hook. 
+
+*LIMITATION 2:* An attacker who can write the state directory can delete the newest entries
+together with their signed tree heads: this needs only file access, not the
+signing key. Verify won't detect this change because the surviving tree heads
+still check out. A silently dropped watch entry essentially leaves no trace. 
+
+Both will be addressed by the planned implementation of a validator running
+under a separate account, which will also secure the latest tree head against
+rollback.
 
 ## Hardening your installation
 
