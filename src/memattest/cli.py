@@ -29,10 +29,36 @@ def _derive_memory_dir(paths: list[Path]) -> Path:
     (parent,) = parents
     if not (parent / STATE_DIR_NAME).is_dir():
         raise MemAttestError(
-            f"{parent} is not an initialized memory directory; "
-            "run init there first, or pass --memory-dir explicitly"
+            f"{parent} is not an initialized memory directory. For a memory "
+            "file, run init there first; for a watched external file, pass "
+            "--memory-dir or --project."
         )
     return parent
+
+
+def _memory_dir_from_flags(args) -> str | None:
+    """Resolve --memory-dir / --project for adopt and unwatch.
+
+    Returns the memory-dir string, or None when neither flag was given (the
+    caller decides the fallback). Passing both is a usage error; a --project
+    whose derived memory directory does not exist is an operational error.
+    """
+    project = getattr(args, "project", None)
+    if project is not None and args.memory_dir is not None:
+        raise MemAttestError("pass --memory-dir or --project, not both")
+    if args.memory_dir is not None:
+        return args.memory_dir
+    if project is not None:
+        from .integrations.claude_code.install import derive_memory_dir
+        derived = derive_memory_dir(Path(project))
+        if not derived.is_dir():
+            raise MemAttestError(
+                f"derived memory directory {derived} does not exist; pass "
+                "--memory-dir explicitly, or run a Claude Code session in the "
+                "project first so the directory exists"
+            )
+        return str(derived)
+    return None
 
 
 def _make_ma(args) -> MemAttest:
@@ -123,8 +149,11 @@ def cmd_adopt(args) -> int:
     if not sys.stdin.isatty():
         print("error: adopt requires an interactive terminal", file=sys.stderr)
         return 2
-    if args.memory_dir is None:
-        args.memory_dir = _derive_memory_dir([Path(p) for p in args.paths])
+    resolved = _memory_dir_from_flags(args)
+    if resolved is not None:
+        args.memory_dir = resolved
+    elif args.memory_dir is None:
+        args.memory_dir = str(_derive_memory_dir([Path(p) for p in args.paths]))
     ma = _make_ma(args)
     if not ma.initialized:
         raise MemAttestError("not initialized; run init first")
@@ -146,6 +175,10 @@ def cmd_unwatch(args) -> int:
     if not sys.stdin.isatty():
         print("error: unwatch requires an interactive terminal", file=sys.stderr)
         return 2
+    resolved = _memory_dir_from_flags(args)
+    if resolved is None:
+        raise MemAttestError("pass --memory-dir or --project to say which log to unwatch from")
+    args.memory_dir = resolved
     ma = _make_ma(args)
     if not ma.initialized:
         raise MemAttestError("not initialized; run init first")
@@ -354,11 +387,17 @@ def main(argv: list[str] | None = None) -> int:
     _add_common(p, memory_dir_default=None)  # derived from the paths' folder when omitted
     p.add_argument("--path", action="append", required=True, dest="paths",
                    help="file to adopt; repeat the flag for multiple files")
+    p.add_argument("--project", default=None,
+                   help="Claude Code project root; derives the memory directory "
+                        "when --memory-dir is omitted")
     p.add_argument("--reason", required=True)
     p.set_defaults(fn=cmd_adopt)
 
     p = sub.add_parser("unwatch", help="stop watching an external file (interactive only)")
-    p.add_argument("--memory-dir", required=True)
+    p.add_argument("--memory-dir", default=None)
+    p.add_argument("--project", default=None,
+                   help="Claude Code project root; derives the memory directory "
+                        "when --memory-dir is omitted")
     p.add_argument("--keystore", choices=["keyring", "file"], default=None,
                    help="backend keystore; only needed for pre-config logs")
     p.add_argument("--path", action="append", required=True, dest="paths",
