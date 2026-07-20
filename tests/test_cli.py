@@ -566,3 +566,36 @@ def test_hook_pre_tool_use_denies_exe_suffix_unwatch(memdir, capsys, monkeypatch
     out = json.loads(capsys.readouterr().out)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "unwatch" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+import pytest
+
+
+@pytest.mark.parametrize("command", ["init", "record", "verify", "adopt",
+                                     "unwatch", "log", "prove", "install"])
+def test_command_help_exits_zero(command, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main([command, "-h"])
+    assert exc.value.code == 0
+    capsys.readouterr()
+
+
+def test_adopt_help_has_description_and_example(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["adopt", "-h"])
+    out = capsys.readouterr().out
+    assert "--project" in out
+    assert "Example:" in out
+    assert "--reason" in out
+
+
+def test_memory_dir_flag_help_is_filled(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["verify", "-h"])
+    out = capsys.readouterr().out
+    # --memory-dir previously had blank help; now it is described. Look past
+    # the usage line (which also names the flag but carries no help text) to
+    # find its entry in the options section.
+    idx = out.find("--memory-dir", out.find("options:"))
+    assert idx != -1
+    assert "memory directory" in out[idx:idx + 200].lower()
