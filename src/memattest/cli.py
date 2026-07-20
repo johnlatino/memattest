@@ -353,6 +353,16 @@ def _add_common(p: argparse.ArgumentParser, *, memory_dir_default: str | None = 
                         "pre-config logs")
 
 
+class _HelpFormatter(argparse.HelpFormatter):
+    """Wrap the description like the default formatter, but leave the epilog
+    (our command-line examples, which start with "Example") unwrapped."""
+
+    def _fill_text(self, text, width, indent):
+        if text.lstrip().startswith("Example"):
+            return "".join(indent + line for line in text.splitlines(keepends=True))
+        return super()._fill_text(text, width, indent)
+
+
 class _HintingParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         if message.startswith("unrecognized arguments:"):
@@ -372,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
                        "signing key, seal it in the backend keystore, and adopt "
                        "the existing files as the trusted baseline.",
                        epilog="Example:\n  memattest init --memory-dir <MEMORY_DIR>",
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+                       formatter_class=_HelpFormatter)
     _add_common(p)
     p.set_defaults(fn=cmd_init)
 
@@ -380,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
                        description="Append a signed write or delete event for one "
                        "memory file (the PostToolUse hook calls this).",
                        epilog="Example:\n  memattest record --path <MEMORY_DIR>/notes.md",
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+                       formatter_class=_HelpFormatter)
     _add_common(p, memory_dir_default=None)  # derived from --path's folder when omitted
     p.add_argument("--path", required=True, help="the memory file that changed")
     p.add_argument("--op", choices=["write", "delete"], default="write",
@@ -392,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
                        "tree heads and the signing-key cross-check, and compare "
                        "the derived state against the files on disk.",
                        epilog="Example:\n  memattest verify --memory-dir <MEMORY_DIR>",
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+                       formatter_class=_HelpFormatter)
     _add_common(p)
     p.add_argument("--no-key-check", action="store_true",
                    help="skip the signing-key cross-check against the backend "
@@ -408,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
                        "  memattest adopt --path <MEMORY_DIR>/notes.md --reason \"manual edit\"\n"
                        "Example, to watch an external file:\n"
                        "  memattest adopt --path <PROJECT>/CLAUDE.md --project <PROJECT> --reason \"baseline\"",
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+                       formatter_class=_HelpFormatter)
     _add_common(p, memory_dir_default=None)  # derived from the paths' folder when omitted
     p.add_argument("--path", action="append", required=True, dest="paths",
                    help="file to adopt; repeat the flag for multiple files")
@@ -424,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
                        "watched file you deliberately removed.",
                        epilog="Example:\n"
                        "  memattest unwatch --path <PROJECT>/CLAUDE.md --project <PROJECT> --reason \"no longer used\"",
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+                       formatter_class=_HelpFormatter)
     p.add_argument("--memory-dir", default=None,
                    help="the guarded memory directory; or use --project")
     p.add_argument("--project", default=None,
@@ -446,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
                        description="Emit an RFC 6962 inclusion proof for one entry, "
                        "or a consistency proof between two tree sizes, as JSON.",
                        epilog="Example:\n  memattest prove --memory-dir <MEMORY_DIR> --index 1",
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+                       formatter_class=_HelpFormatter)
     _add_common(p)
     p.add_argument("--index", type=int, help="entry index to prove inclusion for")
     p.add_argument("--old-size", type=int, help="earlier tree size to prove consistency from")
@@ -459,7 +469,7 @@ def main(argv: list[str] | None = None) -> int:
                        "chosen settings file, watch the shared settings file, and "
                        "verify.",
                        epilog="Example:\n  cd <PROJECT>\n  memattest install",
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+                       formatter_class=_HelpFormatter)
     p.add_argument("--project", default=".",
                    help="project root whose .claude settings get wired "
                         "(default: current directory)")
