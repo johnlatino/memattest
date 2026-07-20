@@ -206,7 +206,11 @@ def run_install(args, make_ma, print_report) -> int:
     print(f"  memattest:   {bin_path.as_posix()}")
     print(f"  settings:    {target.as_posix()}")
     print(f"  init:        {'will run first (not yet initialized)' if init_needed else 'already initialized, skipped'}")
-    print(f"  watch:       {target.as_posix()} (added to tamper detection)")
+    if name == "settings.json":
+        print(f"  watch:       {target.as_posix()} (added to tamper detection)")
+    else:
+        print(f"  watch:       {target.as_posix()} not watched "
+              "(Claude Code writes permission decisions here)")
     for item, action in actions.items():
         print(f"  {item}: {action}")
     try:
@@ -229,8 +233,14 @@ def run_install(args, make_ma, print_report) -> int:
         ) from exc
     print(f"wrote hooks and deny rules to {target.as_posix()}")
 
-    ma.adopt([target], reason="watched by memattest install")
-    print(f"watching {target.as_posix()} for out-of-band changes")
+    if name == "settings.json":
+        ma.adopt([target], reason="watched by memattest install")
+        print(f"watching {target.as_posix()} for out-of-band changes")
+    else:
+        print(f"not watching {target.as_posix()} for tamper detection: Claude "
+              "Code writes permission decisions into settings.local.json, so "
+              "watching it whole would report those routine writes as tampering. "
+              "A hooks-only watch is the planned way to cover it.")
 
     report = ma.verify()
     print_report(report, ma.store.count())
