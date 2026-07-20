@@ -342,21 +342,29 @@ watch list extends coverage to designated external files (outside the memory dir
 edit to a watched file is reported at the next session start, exactly like
 a tampered memory file.
 
-`memattest install` automatically watches the settings file it writes, so
-the hook configuration is covered out of the box. To watch another file,
+`memattest install` automatically watches the settings file it writes when
+that is the shared `settings.json`, so the hook configuration is covered out
+of the box. It does not watch `settings.local.json`, because Claude Code
+writes permission decisions into that file and watching it whole would report
+those routine writes as tampering; a hooks-only watch is the planned way to
+cover a local settings file. To watch another file,
 adopt it- a path outside the memory directory is recorded as a watched
 file rather than a memory file:
 
 ```bash
-memattest adopt --path <PROJECT>/CLAUDE.md --memory-dir <MEMORY_DIR> --reason "baseline project instructions"
+memattest adopt --path <PROJECT>/CLAUDE.md --project <PROJECT> --reason "baseline project instructions"
 ```
+
+`--project` derives the memory directory from the Claude Code project path,
+so you do not have to type the full profile path; pass `--memory-dir`
+instead for a non-default layout (not both).
 
 When a watched file legitimately changes, re-baseline it by adopting it
 again with a reason. To stop watching a file (or to clear the report for
 one you deliberately deleted), use `unwatch`:
 
 ```bash
-memattest unwatch --path <PROJECT>/CLAUDE.md --memory-dir <MEMORY_DIR> --reason "no longer used"
+memattest unwatch --path <PROJECT>/CLAUDE.md --project <PROJECT> --reason "no longer used"
 ```
 
 Both `adopt` and `unwatch` run only from an interactive terminal with typed
