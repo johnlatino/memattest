@@ -92,11 +92,16 @@ wait for the quick read.
 Holding through the full verify would add no robustness: the entry-vs-tree-
 head consistency that the lock secures is fully captured the instant the
 snapshot is read, and verify's file-hashing phase cannot be protected by
-this lock in either design, because the lock guards log appends, not the
-agent's memory-file writes. A file edited around verify time can produce a
-transient `modified` regardless; that is benign (verify is advisory and the
-next run, after the append lands, is clean) and is a separate concern from
-append serialization.
+this lock in either design. The reason is architectural, not fundamental:
+in this hook-driven design memattest runs only *after* the agent's write,
+via a separate short-lived PostToolUse process, and holds no process across
+the write itself, so the append lock can never overlap it. (A mediated-store
+design, where memattest performs the write and appends under one held lock -
+the roadmap's "MCP tool as the only write path" direction - could guard the
+write and eliminate the transient; it is out of scope here.) So a file
+edited around verify time can produce a transient `modified` regardless;
+that is benign (verify is advisory and the next run, after the append lands,
+is clean) and is a separate concern from append serialization.
 
 ## 4. Testing
 
