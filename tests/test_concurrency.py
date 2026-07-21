@@ -1,3 +1,4 @@
+import multiprocessing as mp
 from pathlib import Path
 
 import pytest
@@ -49,3 +50,38 @@ def test_timeout_becomes_operational_error(tmp_path, monkeypatch):
     monkeypatch.setattr(filelock, "FileLock", _AlwaysTimeout)
     with pytest.raises(MemAttestError, match="could not acquire the append lock"):
         ma.record(f)
+
+
+def _record_worker(memory_dir, key_path, passphrase, filename, content, barrier):
+    from memattest.core import MemAttest
+    from memattest.identity import FileKeyStore
+    ma = MemAttest(Path(memory_dir), keystore=FileKeyStore(Path(key_path), passphrase))
+    f = Path(memory_dir) / filename
+    f.write_text(content, encoding="utf-8")
+    barrier.wait()  # all workers hit record() together, forcing contention
+    ma.record(f)
+
+
+def test_concurrent_records_all_land_and_verify_clean(tmp_path):
+    ma = _file_ma(tmp_path)
+    ma.init()
+    base = ma.store.count()
+    key_path = str(ma.state_dir / "key.sealed")
+    n = 8
+    barrier = mp.Barrier(n)
+    procs = [
+        mp.Process(target=_record_worker,
+                   args=(str(ma.memory_dir), key_path, b"pw", f"note{i}.md", f"c{i}", barrier))
+        for i in range(n)
+    ]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=60)
+    for p in procs:
+        assert p.exitcode == 0  # no worker crashed on a collision
+
+    reader = MemAttest(ma.memory_dir, keystore=FileKeyStore(Path(key_path), b"pw"))
+    assert reader.store.count() == base + n  # every write landed, none dropped
+    report = reader.verify()
+    assert report.ok and report.exit_code == 0  # tree-head chain stayed consistent
