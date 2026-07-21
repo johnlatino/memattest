@@ -36,18 +36,22 @@ between. The whole append-and-seal sequence must be serialized.
 
 ## 2. The lock
 
-Add `filelock` (>=3) to the runtime dependencies (pure Python, no transitive
-dependencies). Its default `FileLock` uses OS advisory locks, so a process
-killed mid-append releases the lock instantly - no stale lock file can wedge
-the log.
+Add `filelock` (>=3.30) to the runtime dependencies (pure Python, no
+transitive dependencies). The floor is 3.30 because the implementation passes
+the `preserve_lock_file` constructor argument, which `filelock` introduced in
+3.30.0; an older 3.x would reject it. Its default `FileLock` uses OS advisory
+locks, so a process killed mid-append releases the lock instantly - no stale
+lock file can wedge the log.
 
 A helper `MemAttest._append_lock()` returns
-`FileLock(str(self.state_dir / "append.lock"), timeout=T)` with a default
-`T` of 10 seconds. The lock file lives inside `.memattest/`, which is
-already excluded from guarding (so verify never flags it as `unlogged`) and
-is not matched by the `entries/*.json` or `sth/*.json` globs that count
-files. `filelock` leaves an empty lock file behind on release; there it is
-harmless.
+`FileLock(str(self.state_dir / "append.lock"), timeout=T, preserve_lock_file=True)`
+with a default `T` of 10 seconds. The lock file lives inside `.memattest/`,
+which is already excluded from guarding (so verify never flags it as
+`unlogged`) and is not matched by the `entries/*.json` or `sth/*.json` globs
+that count files. On Unix the advisory-lock release keeps the empty lock file
+in place; on Windows `filelock`'s default release unlinks it, so
+`preserve_lock_file=True` keeps the behavior identical across platforms. The
+leftover empty lock file is harmless.
 
 `record`, `adopt`, and `init` each wrap their entire body in the lock:
 
