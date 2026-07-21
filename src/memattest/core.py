@@ -198,15 +198,18 @@ class MemAttest:
                 state.pop(e["path"], None)
         return state
 
+    def _snapshot(self) -> tuple[list[dict], list[dict]]:
+        # One read of entries and tree heads together, so callers holding the
+        # append lock get a consistent pair.
+        return self.store.load_all(), self.sth_chain.load_all()
+
     def verify(self, key_check: bool = True) -> VerifyReport:
         problems: list[dict] = []
         if self.state_dir.is_dir():
             with self._append_lock():
-                entries = self.store.load_all()
-                sths = self.sth_chain.load_all()
+                entries, sths = self._snapshot()
         else:
-            entries = self.store.load_all()
-            sths = self.sth_chain.load_all()
+            entries, sths = self._snapshot()
 
         if not entries and not sths and not self.initialized:
             raise MemAttestError("not initialized; run init first")

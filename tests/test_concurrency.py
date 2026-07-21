@@ -68,20 +68,27 @@ def test_concurrent_records_all_land_and_verify_clean(tmp_path):
     base = ma.store.count()
     key_path = str(ma.state_dir / "key.sealed")
     n = 8
-    barrier = mp.Barrier(n)
+    # A worker that dies before the barrier breaks it, so the survivors raise
+    # BrokenBarrierError promptly instead of blocking until the join timeout.
+    barrier = mp.Barrier(n, timeout=30)
     procs = [
         mp.Process(target=_record_worker,
                    args=(str(ma.memory_dir), key_path, b"pw", f"note{i}.md", f"c{i}", barrier))
         for i in range(n)
     ]
-    for p in procs:
-        p.start()
-    for p in procs:
-        p.join(timeout=60)
-    for p in procs:
-        assert p.exitcode == 0  # no worker crashed on a collision
+    try:
+        for p in procs:
+            p.start()
+        for p in procs:
+            p.join(timeout=60)
+        for i, p in enumerate(procs):
+            assert p.exitcode == 0, f"worker {i} exited with {p.exitcode}"  # no crash, no hang
+    finally:
+        for p in procs:
+            if p.is_alive():
+                p.terminate()  # never leave a stuck worker orphaned
 
     reader = MemAttest(ma.memory_dir, keystore=FileKeyStore(Path(key_path), b"pw"))
     assert reader.store.count() == base + n  # every write landed, none dropped
     report = reader.verify()
-    assert report.ok and report.exit_code == 0  # tree-head chain stayed consistent
+    assert report.ok and report.exit_code == 0, report.problems  # tree-head chain stayed consistent
