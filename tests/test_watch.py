@@ -274,3 +274,22 @@ def test_cli_unwatch_no_dir_flag_is_error(tmp_path, monkeypatch, capsys):
     rc = cli.main(["unwatch", "--path", str(tmp_path / "x.md"), "--reason", "r"])
     assert rc == 2
     assert "--memory-dir or --project" in capsys.readouterr().err
+
+
+def test_derived_state_accepts_entries_snapshot(mem):
+    f = mem.memory_dir / "notes.md"
+    f.write_text("v1", encoding="utf-8")
+    mem.record(f)
+    snapshot = mem.store.load_all()
+    # Passing the snapshot yields the same result as reading from disk.
+    assert mem.derived_state(snapshot) == mem.derived_state()
+    assert "notes.md" in mem.derived_state(snapshot)
+
+
+def test_derived_watch_state_accepts_entries_snapshot(mem, tmp_path):
+    external = tmp_path / "watched.md"
+    external.write_text("x", encoding="utf-8")
+    mem.adopt([external], reason="watch it")
+    snapshot = mem.store.load_all()
+    assert mem.derived_watch_state(snapshot) == mem.derived_watch_state()
+    assert external.resolve().as_posix() in mem.derived_watch_state(snapshot)

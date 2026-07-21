@@ -172,9 +172,11 @@ class MemAttest:
             self._write_config_if_named()
         return entries
 
-    def derived_state(self) -> dict[str, str]:
+    def derived_state(self, entries: list[dict] | None = None) -> dict[str, str]:
+        if entries is None:
+            entries = self.store.load_all()
         state: dict[str, str] = {}
-        for e in self.store.load_all():
+        for e in entries:
             if e.get("scope", "memory") != "memory":
                 continue
             if e["op"] in ("write", "adopt"):
@@ -183,9 +185,11 @@ class MemAttest:
                 state.pop(e["path"], None)
         return state
 
-    def derived_watch_state(self) -> dict[str, str]:
+    def derived_watch_state(self, entries: list[dict] | None = None) -> dict[str, str]:
+        if entries is None:
+            entries = self.store.load_all()
         state: dict[str, str] = {}
-        for e in self.store.load_all():
+        for e in entries:
             if e.get("scope", "memory") != "watch":
                 continue
             if e["op"] in ("write", "adopt"):
@@ -196,8 +200,13 @@ class MemAttest:
 
     def verify(self, key_check: bool = True) -> VerifyReport:
         problems: list[dict] = []
-        entries = self.store.load_all()
-        sths = self.sth_chain.load_all()
+        if self.state_dir.is_dir():
+            with self._append_lock():
+                entries = self.store.load_all()
+                sths = self.sth_chain.load_all()
+        else:
+            entries = self.store.load_all()
+            sths = self.sth_chain.load_all()
 
         if not entries and not sths and not self.initialized:
             raise MemAttestError("not initialized; run init first")
@@ -255,7 +264,7 @@ class MemAttest:
         if unknown:
             return VerifyReport(ok=False, exit_code=3, problems=problems)
 
-        leaves = self.store.leaf_bytes()
+        leaves = [canonical_json(e) for e in entries]
 
         # Check 1+2: every STH must be signed by our key AND match the recomputed
         # root of its prefix. Because we hold all leaves, recomputing every prefix
@@ -281,7 +290,7 @@ class MemAttest:
             problems.append(_problem("root-mismatch", None, "entries exist but no STH found"))
 
         # Check 3: state conformance — derived expected state vs actual guarded files.
-        expected = self.derived_state()
+        expected = self.derived_state(entries)
         last_entry: dict[str, dict] = {}
         for e in entries:
             last_entry[e["path"]] = e
@@ -307,7 +316,7 @@ class MemAttest:
                 problems.append(_problem("unlogged", rel, "file on disk was never recorded in the log"))
 
         # Check 4 (watch): designated external files, keyed by absolute path.
-        watch_expected = self.derived_watch_state()
+        watch_expected = self.derived_watch_state(entries)
         for wpath, exp_hash in watch_expected.items():
             e = last_entry[wpath]
             wf = Path(wpath)
