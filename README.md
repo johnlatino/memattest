@@ -355,9 +355,11 @@ file rather than a memory file:
 memattest adopt --path <PROJECT>/CLAUDE.md --project <PROJECT> --reason "baseline project instructions"
 ```
 
-`--project` derives the memory directory from the Claude Code project path,
-so you do not have to type the full profile path; pass `--memory-dir`
-instead for a non-default layout (not both).
+`--project` is a Claude Code convenience: it derives the memory directory
+from the project path using Claude Code's directory layout, so you do not
+type the full path. With any other harness (Codex and the like) or a custom
+layout, pass `--memory-dir` with the memory directory instead. Use one or the
+other, not both.
 
 When a watched file legitimately changes, re-baseline it by adopting it
 again with a reason. To stop watching a file (or to clear the report for
