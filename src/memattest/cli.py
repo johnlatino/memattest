@@ -29,10 +29,36 @@ def _derive_memory_dir(paths: list[Path]) -> Path:
     (parent,) = parents
     if not (parent / STATE_DIR_NAME).is_dir():
         raise MemAttestError(
-            f"{parent} is not an initialized memory directory; "
-            "run init there first, or pass --memory-dir explicitly"
+            f"{parent} is not an initialized memory directory. For a memory "
+            "file, run init there first; for a watched external file, pass "
+            "--memory-dir or --project."
         )
     return parent
+
+
+def _memory_dir_from_flags(args) -> str | None:
+    """Resolve --memory-dir / --project for adopt and unwatch.
+
+    Returns the memory-dir string, or None when neither flag was given (the
+    caller decides the fallback). Passing both is a usage error; a --project
+    whose derived memory directory does not exist is an operational error.
+    """
+    project = getattr(args, "project", None)
+    if project is not None and args.memory_dir is not None:
+        raise MemAttestError("pass --memory-dir or --project, not both")
+    if args.memory_dir is not None:
+        return args.memory_dir
+    if project is not None:
+        from .integrations.claude_code.install import derive_memory_dir
+        derived = derive_memory_dir(Path(project))
+        if not derived.is_dir():
+            raise MemAttestError(
+                f"derived memory directory {derived} does not exist; pass "
+                "--memory-dir explicitly, or run a Claude Code session in the "
+                "project first so the directory exists"
+            )
+        return str(derived)
+    return None
 
 
 def _make_ma(args) -> MemAttest:
@@ -123,8 +149,11 @@ def cmd_adopt(args) -> int:
     if not sys.stdin.isatty():
         print("error: adopt requires an interactive terminal", file=sys.stderr)
         return 2
-    if args.memory_dir is None:
-        args.memory_dir = _derive_memory_dir([Path(p) for p in args.paths])
+    resolved = _memory_dir_from_flags(args)
+    if resolved is not None:
+        args.memory_dir = resolved
+    elif args.memory_dir is None:
+        args.memory_dir = str(_derive_memory_dir([Path(p) for p in args.paths]))
     ma = _make_ma(args)
     if not ma.initialized:
         raise MemAttestError("not initialized; run init first")
@@ -146,6 +175,10 @@ def cmd_unwatch(args) -> int:
     if not sys.stdin.isatty():
         print("error: unwatch requires an interactive terminal", file=sys.stderr)
         return 2
+    resolved = _memory_dir_from_flags(args)
+    if resolved is None:
+        raise MemAttestError("pass --memory-dir or --project to say which log to unwatch from")
+    args.memory_dir = resolved
     ma = _make_ma(args)
     if not ma.initialized:
         raise MemAttestError("not initialized; run init first")
@@ -311,11 +344,23 @@ def cmd_hook_pre_tool_use(args) -> int:
 
 
 def _add_common(p: argparse.ArgumentParser, *, memory_dir_default: str | None = ".") -> None:
-    p.add_argument("--memory-dir", default=memory_dir_default)
+    p.add_argument("--memory-dir", default=memory_dir_default,
+                   help="the guarded memory directory (holds the .memattest "
+                        "state); required unless derivable from the path")
     p.add_argument("--keystore", choices=["keyring", "file"], default=None,
                    help="backend keystore; recorded in the log's config.toml "
                         "at init, so it is only needed before init or for "
                         "pre-config logs")
+
+
+class _HelpFormatter(argparse.HelpFormatter):
+    """Wrap the description like the default formatter, but leave the epilog
+    (our command-line examples, which start with "Example") unwrapped."""
+
+    def _fill_text(self, text, width, indent):
+        if text.lstrip().startswith("Example"):
+            return "".join(indent + line for line in text.splitlines(keepends=True))
+        return super()._fill_text(text, width, indent)
 
 
 class _HintingParser(argparse.ArgumentParser):
@@ -332,17 +377,32 @@ def main(argv: list[str] | None = None) -> int:
                             description="Tamper-evident agent memory (append-only Merkle log)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("init", help="initialize and baseline existing memories")
+    p = sub.add_parser("init", help="initialize and baseline existing memories",
+                       description="Initialize a memory directory: generate the "
+                       "signing key, seal it in the backend keystore, and adopt "
+                       "the existing files as the trusted baseline.",
+                       epilog="Example:\n  memattest init --memory-dir <MEMORY_DIR>",
+                       formatter_class=_HelpFormatter)
     _add_common(p)
     p.set_defaults(fn=cmd_init)
 
-    p = sub.add_parser("record", help="append one write/delete event")
+    p = sub.add_parser("record", help="append one write/delete event",
+                       description="Append a signed write or delete event for one "
+                       "memory file (the PostToolUse hook calls this).",
+                       epilog="Example:\n  memattest record --path <MEMORY_DIR>/notes.md",
+                       formatter_class=_HelpFormatter)
     _add_common(p, memory_dir_default=None)  # derived from --path's folder when omitted
-    p.add_argument("--path", required=True)
-    p.add_argument("--op", choices=["write", "delete"], default="write")
+    p.add_argument("--path", required=True, help="the memory file that changed")
+    p.add_argument("--op", choices=["write", "delete"], default="write",
+                   help="whether the file was written or deleted (default: write)")
     p.set_defaults(fn=cmd_record)
 
-    p = sub.add_parser("verify", help="run the integrity checks")
+    p = sub.add_parser("verify", help="run the integrity checks",
+                       description="Recompute the Merkle tree, check the signed "
+                       "tree heads and the signing-key cross-check, and compare "
+                       "the derived state against the files on disk.",
+                       epilog="Example:\n  memattest verify --memory-dir <MEMORY_DIR>",
+                       formatter_class=_HelpFormatter)
     _add_common(p)
     p.add_argument("--no-key-check", action="store_true",
                    help="skip the signing-key cross-check against the backend "
@@ -350,42 +410,74 @@ def main(argv: list[str] | None = None) -> int:
                         "without the key)")
     p.set_defaults(fn=cmd_verify)
 
-    p = sub.add_parser("adopt", help="bless out-of-band changes (interactive only)")
+    p = sub.add_parser("adopt", help="bless out-of-band changes (interactive only)",
+                       description="Bless the current content of one or more files "
+                       "as trusted, appending a signed adopt entry. A path outside "
+                       "the memory directory is recorded as a watched file.",
+                       epilog="Example:\n"
+                       "  memattest adopt --path <MEMORY_DIR>/notes.md --reason \"manual edit\"\n"
+                       "Example, to watch an external file:\n"
+                       "  memattest adopt --path <PROJECT>/CLAUDE.md --project <PROJECT> --reason \"baseline\"",
+                       formatter_class=_HelpFormatter)
     _add_common(p, memory_dir_default=None)  # derived from the paths' folder when omitted
     p.add_argument("--path", action="append", required=True, dest="paths",
                    help="file to adopt; repeat the flag for multiple files")
-    p.add_argument("--reason", required=True)
+    p.add_argument("--project", default=None,
+                   help="Claude Code project root; derives the memory directory "
+                        "when --memory-dir is omitted")
+    p.add_argument("--reason", required=True, help="why this state is being blessed (recorded in the entry)")
     p.set_defaults(fn=cmd_adopt)
 
-    p = sub.add_parser("unwatch", help="stop watching an external file (interactive only)")
-    p.add_argument("--memory-dir", required=True)
+    p = sub.add_parser("unwatch", help="stop watching an external file (interactive only)",
+                       description="Stop watching an external file, appending a "
+                       "signed delete entry. Also clears a missing finding for a "
+                       "watched file you deliberately removed.",
+                       epilog="Example:\n"
+                       "  memattest unwatch --path <PROJECT>/CLAUDE.md --project <PROJECT> --reason \"no longer used\"",
+                       formatter_class=_HelpFormatter)
+    p.add_argument("--memory-dir", default=None,
+                   help="the guarded memory directory; or use --project")
+    p.add_argument("--project", default=None,
+                   help="Claude Code project root; derives the memory directory "
+                        "when --memory-dir is omitted")
     p.add_argument("--keystore", choices=["keyring", "file"], default=None,
                    help="backend keystore; only needed for pre-config logs")
     p.add_argument("--path", action="append", required=True, dest="paths",
                    help="watched file to stop watching; repeat the flag for multiple files")
-    p.add_argument("--reason", required=True)
+    p.add_argument("--reason", required=True, help="why watching stops (recorded in the entry)")
     p.set_defaults(fn=cmd_unwatch)
 
-    p = sub.add_parser("log", help="print entries as JSON lines")
+    p = sub.add_parser("log", help="print entries as JSON lines",
+                       description="Print every log entry as one JSON object per line.")
     _add_common(p)
     p.set_defaults(fn=cmd_log)
 
-    p = sub.add_parser("prove", help="emit inclusion or consistency proof")
+    p = sub.add_parser("prove", help="emit inclusion or consistency proof",
+                       description="Emit an RFC 6962 inclusion proof for one entry, "
+                       "or a consistency proof between two tree sizes, as JSON.",
+                       epilog="Example:\n  memattest prove --memory-dir <MEMORY_DIR> --index 1",
+                       formatter_class=_HelpFormatter)
     _add_common(p)
-    p.add_argument("--index", type=int)
-    p.add_argument("--old-size", type=int)
+    p.add_argument("--index", type=int, help="entry index to prove inclusion for")
+    p.add_argument("--old-size", type=int, help="earlier tree size to prove consistency from")
     p.set_defaults(fn=cmd_prove)
 
     p = sub.add_parser("install",
-                       help="wire the Claude Code hooks for a project (interactive only)")
+                       help="wire the Claude Code hooks for a project (interactive only)",
+                       description="Wire the memattest hooks into a Claude Code "
+                       "project: run init if needed, merge the hooks into the "
+                       "chosen settings file, watch the shared settings file, and "
+                       "verify.",
+                       epilog="Example:\n  cd <PROJECT>\n  memattest install",
+                       formatter_class=_HelpFormatter)
     p.add_argument("--project", default=".",
                    help="project root whose .claude settings get wired "
-                            "(default: current directory)")
-    p.add_argument("--memory-dir",
+                        "(default: current directory)")
+    p.add_argument("--memory-dir", default=None,
                    help="memory directory; derived from the project path when omitted")
     p.add_argument("--keystore", choices=["keyring", "file"], default=None,
                    help="backend keystore used if init runs; recorded in the "
-                            "log's config.toml")
+                        "log's config.toml")
     p.set_defaults(fn=cmd_install)
 
     p = sub.add_parser("hook", help="harness hook entry points")

@@ -566,3 +566,51 @@ def test_hook_pre_tool_use_denies_exe_suffix_unwatch(memdir, capsys, monkeypatch
     out = json.loads(capsys.readouterr().out)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "unwatch" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+import pytest
+
+
+@pytest.mark.parametrize("command", ["init", "record", "verify", "adopt",
+                                     "unwatch", "log", "prove", "install"])
+def test_command_help_exits_zero(command, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main([command, "-h"])
+    assert exc.value.code == 0
+    capsys.readouterr()
+
+
+def test_adopt_help_has_description_and_example(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["adopt", "-h"])
+    out = capsys.readouterr().out
+    assert "--project" in out
+    assert "Example:" in out
+    assert "--reason" in out
+
+
+def test_memory_dir_flag_help_is_filled(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["verify", "-h"])
+    out = capsys.readouterr().out
+    # --memory-dir previously had blank help; now it is described. Look past
+    # the usage line (which also names the flag but carries no help text) to
+    # find its entry in the options section.
+    idx = out.find("--memory-dir", out.find("options:"))
+    assert idx != -1
+    assert "memory directory" in out[idx:idx + 200].lower()
+
+
+def test_help_wraps_description_but_not_example(monkeypatch, capsys):
+    monkeypatch.setenv("COLUMNS", "70")
+    with pytest.raises(SystemExit):
+        cli.main(["verify", "-h"])
+    out = capsys.readouterr().out
+    # The description is a single ~130-char sentence; at width 70 it must wrap,
+    # so it does not appear verbatim on one line.
+    desc = ("Recompute the Merkle tree, check the signed tree heads and the "
+            "signing-key cross-check, and compare the derived state against "
+            "the files on disk.")
+    assert desc not in out
+    # The epilog example command stays intact on its own line.
+    assert "memattest verify --memory-dir <MEMORY_DIR>" in out

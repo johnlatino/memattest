@@ -300,6 +300,23 @@ def test_install_watches_the_settings_file(tmp_path, monkeypatch, capsys):
     assert target in watched
 
 
+def test_install_does_not_watch_local_settings(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    _tty_stdin(monkeypatch, ["2", "install"])  # choice 2 = local
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "settings.local.json" in out
+    assert "not watched" in out  # the skip note
+    from memattest.core import MemAttest
+    from memattest.identity import FileKeyStore
+    ma = MemAttest(mem, keystore=FileKeyStore(mem / ".memattest" / "key.sealed", b"pw"))
+    target = (project / ".claude" / "settings.local.json").resolve().as_posix()
+    assert target not in ma.derived_watch_state()
+
+
 def test_install_derived_memory_dir_missing_is_operational_error(tmp_path, monkeypatch, capsys):
     project = tmp_path / "proj"
     project.mkdir()

@@ -170,3 +170,107 @@ def test_legacy_scopeless_log_still_verifies(tmp_path):
     r = m.verify()
     assert r.ok and r.exit_code == 0
     assert "MEMORY.md" in m.derived_state()
+
+
+def test_cli_adopt_project_flag_derives_memory_dir(tmp_path, monkeypatch, capsys):
+    import io
+    from memattest import cli
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    project = tmp_path / "proj"
+    project.mkdir()
+    from memattest.integrations.claude_code.install import derive_memory_dir
+    mem = derive_memory_dir(project)
+    mem.mkdir(parents=True)
+    (mem / "MEMORY.md").write_text("index", encoding="utf-8")
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    cli.main(["init", "--memory-dir", str(mem), "--keystore", "file"])
+    external = project / "CLAUDE.md"
+    external.write_text("instructions", encoding="utf-8")
+    fake = io.StringIO(); fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "adopt")
+    rc = cli.main(["adopt", "--path", str(external), "--project", str(project),
+                   "--keystore", "file", "--reason", "watch instructions"])
+    assert rc == 0
+    from memattest.core import MemAttest
+    from memattest.identity import FileKeyStore
+    ma = MemAttest(mem, keystore=FileKeyStore(mem / ".memattest" / "key.sealed", b"pw"))
+    assert external.resolve().as_posix() in ma.derived_watch_state()
+
+
+def test_cli_adopt_both_memory_dir_and_project_is_error(tmp_path, monkeypatch, capsys):
+    import io
+    from memattest import cli
+    fake = io.StringIO(); fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    rc = cli.main(["adopt", "--path", str(tmp_path / "x.md"),
+                   "--memory-dir", str(tmp_path), "--project", str(tmp_path),
+                   "--reason", "r"])
+    assert rc == 2
+    assert "not both" in capsys.readouterr().err
+
+
+def test_cli_adopt_project_without_memory_dir_is_operational_error(tmp_path, monkeypatch, capsys):
+    import io
+    from memattest import cli
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    project = tmp_path / "proj"
+    project.mkdir()
+    fake = io.StringIO(); fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    rc = cli.main(["adopt", "--path", str(project / "CLAUDE.md"),
+                   "--project", str(project), "--reason", "r"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "does not exist" in err and "--memory-dir" in err
+
+
+def test_cli_adopt_external_no_dir_flag_message_names_project(tmp_path, monkeypatch, capsys):
+    import io
+    from memattest import cli
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    external = project / "settings.json"
+    external.write_text("{}", encoding="utf-8")
+    fake = io.StringIO(); fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    rc = cli.main(["adopt", "--path", str(external), "--reason", "r"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--project" in err and "run init" in err
+
+
+def test_cli_unwatch_project_flag_resolves(tmp_path, monkeypatch, capsys):
+    import io
+    from memattest import cli
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    project = tmp_path / "proj"
+    project.mkdir()
+    from memattest.integrations.claude_code.install import derive_memory_dir
+    mem = derive_memory_dir(project)
+    mem.mkdir(parents=True)
+    (mem / "MEMORY.md").write_text("index", encoding="utf-8")
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    cli.main(["init", "--memory-dir", str(mem), "--keystore", "file"])
+    external = project / "CLAUDE.md"
+    external.write_text("x", encoding="utf-8")
+    fake = io.StringIO(); fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "adopt")
+    cli.main(["adopt", "--path", str(external), "--project", str(project),
+              "--keystore", "file", "--reason", "watch"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": "unwatch")
+    rc = cli.main(["unwatch", "--path", str(external), "--project", str(project),
+                   "--keystore", "file", "--reason", "done"])
+    assert rc == 0
+    assert "stopped watching" in capsys.readouterr().out
+
+
+def test_cli_unwatch_no_dir_flag_is_error(tmp_path, monkeypatch, capsys):
+    import io
+    from memattest import cli
+    fake = io.StringIO(); fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    rc = cli.main(["unwatch", "--path", str(tmp_path / "x.md"), "--reason", "r"])
+    assert rc == 2
+    assert "--memory-dir or --project" in capsys.readouterr().err
