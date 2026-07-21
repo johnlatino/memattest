@@ -1,7 +1,9 @@
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import merkle, per_log_config, provenance
+from .canonical import canonical_json
 from .entry import SCHEME, build_entry, file_content_hash
 from .errors import KeyNotFoundError, KeyStoreError, MemAttestError
 from .identity import Identity, KeyringKeyStore, KeyStore
@@ -24,6 +26,8 @@ def _problem(kind: str, path: str | None, detail: str, last_valid_index: int | N
 
 class MemAttest:
     """High-level facade over one guarded memory directory."""
+
+    _timeout = 10.0  # seconds to wait for the append lock before erroring
 
     def __init__(self, memory_dir: Path, keystore: KeyStore | None = None):
         self.memory_dir = Path(memory_dir)
@@ -65,6 +69,29 @@ class MemAttest:
     def _identity(self) -> Identity:
         return Identity.load(self.keystore, self.key_name)
 
+    @contextmanager
+    def _append_lock(self):
+        # Serialize the whole append-and-seal body across processes. filelock
+        # uses OS advisory locks, so a process killed mid-append releases the
+        # lock instantly. Imported lazily to keep the hot hook path light.
+        from filelock import FileLock, Timeout
+        # preserve_lock_file: on Windows, filelock's default release unlinks
+        # the lock file (Unix's flock-based release does not); keep it around
+        # on both platforms so its presence/absence is not a caller-visible
+        # platform difference.
+        lock = FileLock(
+            str(self.state_dir / "append.lock"), timeout=self._timeout, preserve_lock_file=True
+        )
+        try:
+            with lock:
+                yield
+        except Timeout as exc:
+            raise MemAttestError(
+                f"could not acquire the append lock at "
+                f"{self.state_dir / 'append.lock'} within {self._timeout}s; "
+                "another memattest process may be holding it"
+            ) from exc
+
     def _write_config_if_named(self) -> None:
         # Called only after the backend keystore has demonstrably held the
         # signing key (init just sealed it; the record/adopt that just
@@ -99,46 +126,50 @@ class MemAttest:
         return entry
 
     def init(self, reason: str = "initial baseline") -> list[dict]:
-        if self.initialized:
-            raise MemAttestError(f"{self.memory_dir} is already initialized")
-        identity = Identity.generate(self.keystore, self.key_name)
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.pubkey_path.write_text(identity.public_key_bytes.hex(), encoding="ascii")
-        self._write_config_if_named()
-        entries = [self._append(identity, "adopt", p, reason) for p in self.guarded_files()]
-        self._seal_current_tree(identity)
+        with self._append_lock():
+            if self.initialized:
+                raise MemAttestError(f"{self.memory_dir} is already initialized")
+            identity = Identity.generate(self.keystore, self.key_name)
+            self.pubkey_path.write_text(identity.public_key_bytes.hex(), encoding="ascii")
+            self._write_config_if_named()
+            entries = [self._append(identity, "adopt", p, reason) for p in self.guarded_files()]
+            self._seal_current_tree(identity)
         return entries
 
     def record(self, path: Path, op: str = "write", reason: str | None = None) -> dict:
         if not self.initialized:
             raise MemAttestError("not initialized; run init first")
-        identity = self._identity()
-        entry = self._append(identity, op, path, reason)
-        self._seal_current_tree(identity)
-        self._write_config_if_named()
+        with self._append_lock():
+            identity = self._identity()
+            entry = self._append(identity, op, path, reason)
+            self._seal_current_tree(identity)
+            self._write_config_if_named()
         return entry
 
     def adopt(self, paths: list[Path], reason: str) -> list[dict]:
         if not self.initialized:
             raise MemAttestError("not initialized; run init first")
-        identity = self._identity()
-        entries = [self._append(identity, "adopt", p, reason, scope=self._scope_for(p))
-                   for p in paths]
-        self._seal_current_tree(identity)
-        self._write_config_if_named()
+        with self._append_lock():
+            identity = self._identity()
+            entries = [self._append(identity, "adopt", p, reason, scope=self._scope_for(p))
+                       for p in paths]
+            self._seal_current_tree(identity)
+            self._write_config_if_named()
         return entries
 
     def unwatch(self, paths: list[Path], reason: str) -> list[dict]:
         if not self.initialized:
             raise MemAttestError("not initialized; run init first")
-        watched = self.derived_watch_state()
-        for p in paths:
-            if Path(p).resolve().as_posix() not in watched:
-                raise MemAttestError(f"{Path(p).resolve().as_posix()} is not currently watched")
-        identity = self._identity()
-        entries = [self._append(identity, "delete", p, reason, scope="watch") for p in paths]
-        self._seal_current_tree(identity)
-        self._write_config_if_named()
+        with self._append_lock():
+            watched = self.derived_watch_state()
+            for p in paths:
+                if Path(p).resolve().as_posix() not in watched:
+                    raise MemAttestError(f"{Path(p).resolve().as_posix()} is not currently watched")
+            identity = self._identity()
+            entries = [self._append(identity, "delete", p, reason, scope="watch") for p in paths]
+            self._seal_current_tree(identity)
+            self._write_config_if_named()
         return entries
 
     def derived_state(self) -> dict[str, str]:
