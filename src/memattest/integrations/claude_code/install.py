@@ -1,13 +1,13 @@
 """Claude Code hook installer (spec 2026-07-15).
 
-One interactive, adopt-style ceremony performs the full onboarding: derive
+One interactive, adopt-style procedure performs the full onboarding: derive
 or accept the memory directory, run init when needed, merge the filled
 settings-snippet template into the chosen project settings file, and finish
 with a closing verify. Trust-sensitive by nature — the settings files
-configure the hooks — so the ceremony requires a TTY and typed
+configure the hooks, so the procedure requires a TTY and typed
 confirmation, and the PreToolUse guard denies agent-run invocations.
 
-Pure pieces first (unit-testable without a terminal); the ceremony driver
+Pure pieces first (unit-testable without a terminal); the procedure driver
 run_install is at the bottom.
 """
 from __future__ import annotations
@@ -62,6 +62,25 @@ def _is_memattest_hook(hook: dict) -> bool:
     return "memattest" in command and " hook " in command
 
 
+def _has_memattest_hook(settings: dict) -> bool:
+    """True if any hook in a settings dict is a memattest hook. Defensive:
+    a malformed hooks shape is treated as no match, never raised, because
+    this scans scopes the installer does not own."""
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    for groups in hooks.values():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            for hook in group.get("hooks", []) or []:
+                if isinstance(hook, dict) and _is_memattest_hook(hook):
+                    return True
+    return False
+
+
 def _shape_error(where: str) -> MemAttestError:
     return MemAttestError(
         f"settings content has an unexpected shape at {where!r}; "
@@ -106,7 +125,7 @@ def plan_merge(existing: dict, template: dict) -> tuple[dict, dict[str, str]]:
     updated in place; events with none get the template's matcher group
     appended. permissions.deny is a set-union. Everything else round-trips
     untouched. Returns (merged, actions) where actions maps each item to
-    "added" / "updated" / "unchanged" for the ceremony plan display.
+    "added" / "updated" / "unchanged" for the install plan display.
     """
     _check_shape(existing)
     merged = json.loads(json.dumps(existing))  # deep copy
@@ -151,8 +170,32 @@ def write_settings(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def other_scope_hook_conflicts(project: Path, target: Path) -> list[Path]:
+    """Settings scopes other than target that already hold a memattest hook.
+
+    Claude Code merges hooks across scopes, so a memattest hook in another
+    scope would fire in addition to the one being installed. The scan is
+    advisory: a scope it cannot read is skipped, never fatal."""
+    candidates = [
+        project / ".claude" / "settings.json",
+        project / ".claude" / "settings.local.json",
+        Path.home() / ".claude" / "settings.json",
+    ]
+    conflicts: list[Path] = []
+    for path in candidates:
+        if path == target:
+            continue
+        try:
+            settings = read_settings(path)
+        except MemAttestError:
+            continue
+        if _has_memattest_hook(settings):
+            conflicts.append(path)
+    return conflicts
+
+
 def run_install(args, make_ma, print_report) -> int:
-    """The interactive ceremony. make_ma and print_report are injected from
+    """The interactive install procedure. make_ma and print_report are injected from
     cli.py so this module never imports the CLI (or anything heavy)."""
     if not sys.stdin.isatty():
         print("error: install requires an interactive terminal", file=sys.stderr)
@@ -195,6 +238,19 @@ def run_install(args, make_ma, print_report) -> int:
         return 2
     name = "settings.json" if choice == "1" else "settings.local.json"
     target = project / ".claude" / name
+
+    conflicts = other_scope_hook_conflicts(project, target)
+    if conflicts:
+        listed = ", ".join(p.as_posix() for p in conflicts)
+        print(
+            f"error: memattest hooks are already registered in {listed}. "
+            "Claude Code merges hooks across settings files, so installing "
+            "them here too would make each memattest hook fire more than once "
+            "per event. Remove the memattest hooks from that file first, or "
+            "re-run and target it to update in place, then install again.",
+            file=sys.stderr,
+        )
+        return 2
 
     template = load_filled_template(bin_path, memory_dir)
     existing = read_settings(target)

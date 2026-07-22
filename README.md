@@ -440,6 +440,9 @@ In rough priority order:
   any scope — including the gitignored `settings.local.json` or the
   user-level `~/.claude/settings.json`, both outside the repository's
   visibility — turns off every hook at the next session start.
+  The installer refuses to add memattest hooks to a settings file when they
+  already exist in another scope, so it will not silently create the
+  duplicate registration that makes each hook fire more than once per event.
   Also keep in mind that memattest only emits messages 
   when a hook invokes it, so removal of the hook will be observed as *silence*, not a report. 
   So, if you don't see any message from memattest (e.g., `memattest: OK`) when starting your agent,
