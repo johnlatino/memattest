@@ -160,10 +160,12 @@ The template configures three hooks and two permission rules:
   in your console on every session start (a one-line `OK N entries verified`
   on a clean log, the full report on a problem). Seeing that line each
   session is how you tell a healthy session from one where the hook was
-  removed. The subcommand always exits 0 by design, because Claude Code
-  discards a SessionStart hook's stdout on a non-zero exit; wiring plain
-  `memattest verify` here alerts the user but leaves the agent, the party
-  about to act on the memory, uninformed.
+  removed. The `hook session-start` subcommand always exits 0 by design,
+  because Claude Code discards a SessionStart hook's stdout on a non-zero
+  exit. It wraps `verify` for exactly this reason: the plain `memattest
+  verify` command exits non-zero when it finds a problem, so wiring it
+  directly as the hook would let Claude Code discard the tamper report
+  before the agent, the party about to act on the memory, ever saw it.
 - A `PostToolUse` hook (matching `Write|Edit`) runs
   `memattest hook post-tool-use` to append a log entry after every memory
   write.
