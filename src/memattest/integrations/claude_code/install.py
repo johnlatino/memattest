@@ -3,7 +3,7 @@
 One interactive, adopt-style procedure performs the full onboarding: derive
 or accept the memory directory, run init when needed, merge the filled
 settings-snippet template into the chosen project settings file, and finish
-with a closing verify. Trust-sensitive by nature — the settings files
+with a closing verify. Trust-sensitive by nature, since the settings files
 configure the hooks, so the procedure requires a TTY and typed
 confirmation, and the PreToolUse guard denies agent-run invocations.
 
