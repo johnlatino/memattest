@@ -193,7 +193,7 @@ def test_hook_session_start_clean_emits_context_json(memdir, capsys):
     hso = out["hookSpecificOutput"]
     assert hso["hookEventName"] == "SessionStart"
     assert "OK 1 entries verified" in hso["additionalContext"]
-    assert "systemMessage" not in out  # quiet on success
+    assert "OK 1 entries verified" in out["systemMessage"]  # user sees success too
 
 
 def test_hook_session_start_tampered_exits_zero_with_full_report(memdir, capsys):

@@ -159,7 +159,63 @@ def test_write_settings_roundtrip_creates_parent(tmp_path):
     assert f.read_text(encoding="utf-8").endswith("\n")
 
 
-# --- ceremony (CLI-level, adopt-test style) -----------------------------------
+# --- cross-scope conflict detection ---------------------------------------------
+
+
+def _memattest_settings(command="/x/memattest hook post-tool-use --memory-dir /m"):
+    return {"hooks": {"PostToolUse": [{"hooks": [{"type": "command", "command": command}]}]}}
+
+
+def test_has_memattest_hook_detects_and_rejects():
+    from memattest.integrations.claude_code.install import _has_memattest_hook
+    assert _has_memattest_hook(_memattest_settings()) is True
+    assert _has_memattest_hook({"hooks": {}}) is False
+    assert _has_memattest_hook({}) is False
+    # A non-memattest command is not a match.
+    assert _has_memattest_hook(
+        {"hooks": {"PostToolUse": [{"hooks": [{"command": "prettier --write"}]}]}}
+    ) is False
+    # Malformed shapes are tolerated (no raise, treated as no match).
+    assert _has_memattest_hook({"hooks": "oops"}) is False
+    assert _has_memattest_hook({"hooks": {"PostToolUse": "oops"}}) is False
+
+
+def test_other_scope_hook_conflicts_finds_other_scopes(tmp_path, monkeypatch):
+    from memattest.integrations.claude_code.install import (
+        other_scope_hook_conflicts, write_settings,
+    )
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    project = tmp_path / "proj"
+    (project / ".claude").mkdir(parents=True)
+    target = project / ".claude" / "settings.json"
+    other_local = project / ".claude" / "settings.local.json"
+    user = home / ".claude" / "settings.json"
+    write_settings(other_local, _memattest_settings())
+    write_settings(user, _memattest_settings())
+    conflicts = other_scope_hook_conflicts(project, target)
+    assert set(conflicts) == {other_local, user}
+
+
+def test_other_scope_hook_conflicts_ignores_target_and_tolerates_bad_scope(tmp_path, monkeypatch):
+    from memattest.integrations.claude_code.install import (
+        other_scope_hook_conflicts, write_settings,
+    )
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    project = tmp_path / "proj"
+    (project / ".claude").mkdir(parents=True)
+    target = project / ".claude" / "settings.json"
+    # The target itself holding a memattest hook is an in-place update, not a conflict.
+    write_settings(target, _memattest_settings())
+    # A malformed other scope must be skipped, not raise.
+    (project / ".claude" / "settings.local.json").write_text("{ not json", encoding="utf-8")
+    assert other_scope_hook_conflicts(project, target) == []
+
+
+# --- install procedure (CLI-level, adopt-test style) -----------------------------------
 
 import io
 
@@ -174,7 +230,10 @@ def _tty_stdin(monkeypatch, answers):
     monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
 
 
-def _project_and_memory(tmp_path):
+def _project_and_memory(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     project = tmp_path / "proj"
     project.mkdir()
     mem = tmp_path / "memory"
@@ -184,7 +243,7 @@ def _project_and_memory(tmp_path):
 
 
 def test_install_refuses_without_tty(tmp_path, monkeypatch, capsys):
-    project, mem = _project_and_memory(tmp_path)
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     fake = io.StringIO()
     fake.isatty = lambda: False
@@ -197,7 +256,7 @@ def test_install_refuses_without_tty(tmp_path, monkeypatch, capsys):
 
 
 def test_install_eof_at_choice_aborts_cleanly(tmp_path, monkeypatch, capsys):
-    project, mem = _project_and_memory(tmp_path)
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     fake = io.StringIO()
     fake.isatty = lambda: True
@@ -210,7 +269,7 @@ def test_install_eof_at_choice_aborts_cleanly(tmp_path, monkeypatch, capsys):
 
 
 def test_install_full_drive_through(tmp_path, monkeypatch, capsys):
-    project, mem = _project_and_memory(tmp_path)
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     _tty_stdin(monkeypatch, ["1", "install"])
     rc = cli.main(["install", "--project", str(project),
@@ -233,7 +292,7 @@ def test_install_full_drive_through(tmp_path, monkeypatch, capsys):
 
 
 def test_install_local_choice_writes_local_file(tmp_path, monkeypatch, capsys):
-    project, mem = _project_and_memory(tmp_path)
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     _tty_stdin(monkeypatch, ["2", "install"])
     rc = cli.main(["install", "--project", str(project),
@@ -244,7 +303,7 @@ def test_install_local_choice_writes_local_file(tmp_path, monkeypatch, capsys):
 
 
 def test_install_rerun_is_idempotent(tmp_path, monkeypatch, capsys):
-    project, mem = _project_and_memory(tmp_path)
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     _tty_stdin(monkeypatch, ["1", "install"])
     assert cli.main(["install", "--project", str(project),
@@ -274,6 +333,7 @@ def test_install_nonexistent_project_is_operational_error(tmp_path, monkeypatch,
 def test_install_plan_flags_absent_given_memory_dir(tmp_path, monkeypatch, capsys):
     project = tmp_path / "proj"
     project.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "fakehome"))
     absent = tmp_path / "not-yet"
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     _tty_stdin(monkeypatch, ["1", "install"])
@@ -286,7 +346,7 @@ def test_install_plan_flags_absent_given_memory_dir(tmp_path, monkeypatch, capsy
 
 
 def test_install_watches_the_settings_file(tmp_path, monkeypatch, capsys):
-    project, mem = _project_and_memory(tmp_path)
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     _tty_stdin(monkeypatch, ["1", "install"])
     rc = cli.main(["install", "--project", str(project),
@@ -301,7 +361,7 @@ def test_install_watches_the_settings_file(tmp_path, monkeypatch, capsys):
 
 
 def test_install_does_not_watch_local_settings(tmp_path, monkeypatch, capsys):
-    project, mem = _project_and_memory(tmp_path)
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
     monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
     _tty_stdin(monkeypatch, ["2", "install"])  # choice 2 = local
     rc = cli.main(["install", "--project", str(project),
@@ -333,3 +393,22 @@ def test_install_derived_memory_dir_missing_is_operational_error(tmp_path, monke
     assert rc == 2
     err = capsys.readouterr().err
     assert "--memory-dir" in err and "does not exist" in err
+
+
+def test_install_blocks_on_cross_scope_duplicate(tmp_path, monkeypatch, capsys):
+    project, mem = _project_and_memory(tmp_path, monkeypatch)
+    monkeypatch.setenv("MEMATTEST_PASSPHRASE", "pw")
+    # A memattest hook already lives in the local scope; installing into the
+    # shared scope would duplicate it, so install must stop.
+    (project / ".claude").mkdir(exist_ok=True)
+    write_settings(project / ".claude" / "settings.local.json", _memattest_settings())
+    _tty_stdin(monkeypatch, ["1"])  # choose shared settings.json; blocked before confirm
+    rc = cli.main(["install", "--project", str(project),
+                   "--memory-dir", str(mem), "--keystore", "file"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "already registered" in err
+    assert "settings.local.json" in err
+    # Nothing was written or initialized.
+    assert not (project / ".claude" / "settings.json").exists()
+    assert not (mem / ".memattest").exists()

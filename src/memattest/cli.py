@@ -256,25 +256,24 @@ def cmd_hook_post_tool_use(args) -> int:
 def cmd_hook_session_start(args) -> int:
     # Claude Code injects a SessionStart hook's stdout into agent context only
     # on exit 0, so the outcome must be delivered as hook JSON, never as a
-    # non-zero exit — including operational failures like a deleted
+    # non-zero exit. That includes operational failures like a deleted
     # .memattest directory, which would otherwise leave the agent silently
-    # trusting unguarded memory.
+    # trusting unguarded memory. systemMessage carries the result to the
+    # user's console on every session start, so a healthy session is visibly
+    # distinct from one where the hook was removed.
     try:
         ma = _make_ma(args)
         report = ma.verify()
-        ok = report.ok
         text = "memattest: " + "\n".join(_report_lines(report, ma.store.count()))
     except MemAttestError as exc:
-        ok = False
         text = f"memattest: verification could not run: {exc}"
-    out: dict = {
+    out = {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
             "additionalContext": text,
-        }
+        },
+        "systemMessage": text,
     }
-    if not ok:
-        out["systemMessage"] = text
     print(json.dumps(out))
     return 0
 
