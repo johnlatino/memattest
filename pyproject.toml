@@ -12,6 +12,7 @@ dependencies = [
     "cryptography>=42",
     "keyring>=24",
     "psutil>=5.9",
+    "filelock>=3.30",  # preserve_lock_file kwarg (do not lower this floor)
 ]
 
 [project.optional-dependencies]
