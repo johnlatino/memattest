@@ -156,11 +156,14 @@ The template configures three hooks and two permission rules:
 
 - A `SessionStart` hook runs `memattest hook session-start`, which verifies
   the log and delivers the result as hook JSON: `additionalContext` places
-  the report in the agent's context, and on failure `systemMessage` shows
-  the same report to you, untruncated. The subcommand always exits 0 by
-  design, because Claude Code discards a SessionStart hook's stdout on a
-  non-zero exit — wiring plain `memattest verify` here alerts the user but
-  leaves the agent, the party about to act on the memory, uninformed.
+  the report in the agent's context, and `systemMessage` shows the result
+  in your console on every session start (a one-line `OK N entries verified`
+  on a clean log, the full report on a problem). Seeing that line each
+  session is how you tell a healthy session from one where the hook was
+  removed. The subcommand always exits 0 by design, because Claude Code
+  discards a SessionStart hook's stdout on a non-zero exit; wiring plain
+  `memattest verify` here alerts the user but leaves the agent, the party
+  about to act on the memory, uninformed.
 - A `PostToolUse` hook (matching `Write|Edit`) runs
   `memattest hook post-tool-use` to append a log entry after every memory
   write.
