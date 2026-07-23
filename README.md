@@ -1,3 +1,5 @@
+<img src="images/memattest.png" alt="memAttest logo">
+
 # memattest
 
 memattest provides AI agent memory attestation. It makes an AI agent's persistent memory **tamper-evident**.
