@@ -61,19 +61,29 @@ sequencing layer, not to replace them.
 
 ## Quickstart
 
-memattest requires Python 3.12 or newer. It is not yet published to PyPI, so
-install it from a local clone of this repository. Run the following from the
-**repository root** (the directory containing `pyproject.toml`).
+memattest requires Python 3.12 or newer and is published on
+[PyPI](https://pypi.org/project/memattest/). Install it into a virtual
+environment:
 
 ```bash
-cd <path-to-memattest-repo>
 python -m venv .venv
 .venv\Scripts\activate    # Windows; use `source .venv/bin/activate` on Linux/macOS
-pip install -e .
+pip install memattest
 ```
 
 One Windows note for the block above: if your shell is Git Bash, the activation path is
 the Windows layout with POSIX syntax: `source .venv/Scripts/activate`.
+
+To work from source instead (for development, or to pick up unreleased
+changes), clone this repository and install it from the
+**repository root** (the directory containing `pyproject.toml`):
+
+```bash
+cd <path-to-memattest-repo>
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+```
 
 Next you need the path to the memory directory you want to guard- the
 `<MEMORY_DIR>` placeholder. memattest works with

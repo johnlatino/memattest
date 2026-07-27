@@ -4,10 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "memattest"
-version = "1.0.0"
+version = "1.0.2"
 description = "Tamper-evident AI agent memory: RFC 6962 append-only Merkle log with signed tree heads and provenance"
+readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+]
 dependencies = [
     "cryptography>=42",
     "keyring>=24",
