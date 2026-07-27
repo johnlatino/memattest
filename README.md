@@ -106,9 +106,9 @@ memattest at the `memory` directory itself, not the `<my-project>` directory
 above it; that parent also holds session data that changes constantly and
 would drown verification in false alarms. 
 
-[!IMPORTANT]
-Just a reminder- this example is for Claude Code. The memory directory will differ 
-with other agents and agent harnesses. For example, in Codex it's `~/.codex/memories/`
+> [!IMPORTANT]
+> Just a reminder- this example is for Claude Code. The memory directory will differ 
+> with other agents and agent harnesses. For example, in Codex it's `~/.codex/memories/`
 
 Initialize the memory directory. This generates a per-installation Ed25519
 signing key, seals it in the OS keystore, and adopts any pre-existing files
@@ -195,15 +195,15 @@ The template configures three hooks and two permission rules:
   memattest for its next session. Humans editing settings in their own
   editor are unaffected.
 
-  [!IMPORTANT]
-  all three matches are deliberately broad (fail-closed), so a command that merely 
-  *mentions* the phrases, such as a commit message, is denied too.
+  > [!IMPORTANT]
+  > all three matches are deliberately broad (fail-closed), so a command that merely 
+  > *mentions* the phrases, such as a commit message, is denied too.
   
-  [!IMPORTANT]
-  An agent that can execute arbitrary Python can still reach the adopt API
-  directly, which no command filter can catch; the signed,
-  provenance-stamped `adopt` entry is what keeps that path from being
-  silent (see [Security limitations](#security-limitations)).
+  > [!IMPORTANT]
+  > An agent that can execute arbitrary Python can still reach the adopt API
+  > directly, which no command filter can catch; the signed,
+  > provenance-stamped `adopt` entry is what keeps that path from being
+  > silent (see [Security limitations](#security-limitations)).
 
 - Permission `deny` rules (`Bash(*memattest adopt*)`, `Bash(*memattest install*)`,
   and their `PowerShell` twins) remain as a second layer, but in my testing
@@ -250,8 +250,8 @@ terminal check is best-effort, which is why the Claude Code template also
 blocks `adopt` at the hook layer (see
 [Security limitations](#security-limitations) below).
 
-[!IMPORTANT]
-The `adopt` command is designed to be run manually and interactively. It's security-critical and should not be automated.
+> [!IMPORTANT]
+> The `adopt` command is designed to be run manually and interactively. It's security-critical and should not be automated.
 
 One Windows-specific note for anyone testing the stdin-reading hook
 subcommands (`hook post-tool-use`, `hook pre-tool-use`) by hand: piping JSON
@@ -411,8 +411,8 @@ rollback.
 memattest detects tampering; it does not prevent it. Filesystem access
 control is critical to prevent things like malicious removal of the memattest hook.
 
-[!IMPORTANT]
-**Before relying on memattest, secure the memory and installation folders!**
+> [!IMPORTANT]
+> **Before relying on memattest, secure the memory and installation folders!**
 
 In rough priority order:
 
